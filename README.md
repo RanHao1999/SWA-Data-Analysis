@@ -11,5 +11,8 @@ Then, the user can run GMM_3component.py to run a long interval.
 These codes are well-commented. Enjoy!
 
 
+Any questions, feel free to contact me: hao.ran.24@ucl.ac.uk
+
+
 
 

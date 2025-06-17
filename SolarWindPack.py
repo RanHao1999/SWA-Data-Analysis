@@ -200,7 +200,6 @@ def transferToFieldAligned(SW_spherical, transfer_Matrix, VPbulk_SRF=np.array([0
     (Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz) = fieldAlignedCoordinates(magF_SRF[0], magF_SRF[1], magF_SRF[2])
     Vpara, Vperp1, Vperp2 = rotateVectorIntoFieldAligned(vx_SRF, vy_SRF, vz_SRF, Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
 
-    
     SolarWind_Cartesian = SW_spherical.copy()
     SolarWind_Cartesian.set_grid([Vpara, Vperp1, Vperp2], coord_type=coord_type)
     return SolarWind_Cartesian
@@ -366,7 +365,7 @@ def Temperature_para_perp(SW_Spherical, component=None):
 
     K2eV = {
         'proton': 8.617333262145e-5, 
-        'alpha': 8.617333262145e-5 / 2.0, 
+        'alpha': 8.617333262145e-5, 
         'electron': 8.617333262145e-5
     }
 
@@ -386,7 +385,6 @@ def Temperature_para_perp(SW_Spherical, component=None):
     T_perp = T_perp * k2eV
     
     return T_para, T_perp
-
 
 
 # In 2D field-aligned.

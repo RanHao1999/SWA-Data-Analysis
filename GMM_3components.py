@@ -84,7 +84,7 @@ def plot_one(ax1, ax2, vel, vdf_total, f_core, f_beam, f_alpha, co_type, scores)
         verticalalignment='center',
         transform=ax1.transAxes
     )
-    ax1.set_ylim(-12, -6)
+    ax1.set_ylim(-12, -5)
     ax1.set_title(co_type)
     ax1.set_xlabel('Vel [km/s]')
     ax1.set_ylabel('log10(VDF)')
@@ -99,7 +99,7 @@ def plot_one(ax1, ax2, vel, vdf_total, f_core, f_beam, f_alpha, co_type, scores)
     x, y = log10_1D_dist(vel, f_alpha)
     ax2.plot(x, y, label='Alpha', color='green')
     ax2.scatter(x, y, s=10, color='green')
-    ax2.set_ylim(-12, -6)
+    ax2.set_ylim(-12, -5)
     ax2.set_xlabel('Vel [km/s]')
     ax2.set_ylabel('log10(VDF)')
     ax2.legend()
@@ -248,7 +248,7 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(x, y, label='Corrected VDF')
     ax.scatter(x, y, s=20, color='red')
-    ax.set_ylim(-12, -6)
+    ax.set_ylim(-12, -5)
     for idx, (xi, yi) in enumerate(zip(x.value, y)):
         ax.annotate(str(np.where(mask)[0][idx]), (xi, yi), textcoords="offset points", xytext=(0, 5), ha='center', fontsize=8)
     ax.set_xlabel('Vel [km/s]')
@@ -256,7 +256,7 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     plt.savefig(result_path + '/Corrected_VDF_1D.png')
     plt.close()
 
-    def Remove_LowHigh_Speed_part(vdf_corrected, window_size=4, gap_limit=2):
+    def Remove_LowHigh_Speed_part(vdf_corrected, window_size=4, gap_limit=4):
         # Remove the low speed noise part.
         # vdf_corrected: vdf that is after one-particle noise level correction.
         # window size: how many succesive points of increasing can we consider as non_noise (low-speed), default 4.
@@ -305,7 +305,7 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(x, y, label='Corrected VDF')
     ax.scatter(x, y, s=20, color='red')
-    ax.set_ylim(-12, -6)
+    ax.set_ylim(-12, -5)
     for idx, (xi, yi) in enumerate(zip(x.value, y)):
         ax.annotate(str(np.where(mask)[0][idx]), (xi, yi), textcoords="offset points", xytext=(0, 5), ha='center', fontsize=8)
     ax.set_xlabel('Vel [km/s]')
@@ -313,45 +313,17 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     plt.savefig(result_path + '/Corrected_VDF_Cleaned.png')
     plt.close()
 
-    # Find the dividing index:
-    vdf_corrected_1D = np.sum(vdf_corrected, axis=(0, 1))
-    mask = vdf_corrected_1D > 0
-    x = vel[mask]
-    y = np.log10(vdf_corrected_1D[mask])
 
-    sigma = 1.0
-    smoothed_y = gaussian_filter1d(y, sigma)
-    local_minima_indices = argrelextrema(smoothed_y, np.less)[0]
+    # Get the dividing index bease on the previous vdfs.
+    
+    # Get the dividing index based on the previous vdfs.
+    Pvdf_sum = np.sum(Protons_initial.get_vdf(), axis=(0, 1))
+    Avdf_sum = np.sum(Alphas_initial.get_vdf(), axis=(0, 1))
 
-    extreme_min_index = None
-    if local_minima_indices.size > 0:
-        extreme_min_index = local_minima_indices[-1]
-
-    if extreme_min_index is None:
-        dividing_idx = int((np.where(mask)[0][0] + np.where(mask)[0][-1]) / 2.0)
-        print("Failed to find the dividing index, use the middle point instead.")
-        print("Dividing idx: ", dividing_idx)
-    else:
-        fig, ax = plt.subplots(figsize=(8, 5))
-        ax.plot(x, y, label='Corrected VDF')
-        ax.plot(x, smoothed_y, label='Smoothed VDF', color='green')
-        ax.scatter(x, y, s=20, color='red')
-        ax.axvline(x[extreme_min_index].value, color='black', linestyle='--', label='Dividing Index')
-        ax.legend()
-        ax.set_xlabel('Vel [km/s]')
-        ax.set_ylabel('log10(VDF)')
-        for idx, (xi, yi) in enumerate(zip(x.value, y)):
-            ax.annotate(str(np.where(mask)[0][idx]), (xi, yi), textcoords="offset points", xytext=(0, 5), ha='center', fontsize=8)
-        plt.savefig(result_path + '/Corrected_VDF_1D_dividing.png')
-        plt.close()
-
-        # Find the dividing index:
-        vels = vel.value
-        x_val = x[extreme_min_index].value
-        dividing_idx = len(vels)
-        if extreme_min_index is not None:
-            dividing_idx = np.where(vels == x_val)[0][0]
-        print('Dividing index: ', dividing_idx)
+    for i in range(len(Pvdf_sum)):
+        if Avdf_sum[i] < Pvdf_sum[i]:
+            dividing_idx = i
+            break
 
     # Get the initial values for GMM.
     u_proton_core = cal_bulk_velocity_Spherical(Protons_initial, component='core')
@@ -366,17 +338,17 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
 
     # Initial means
     # Here are two choices, if the beam is really not separate enough, I strongly suggest to use VA as initial input for beam.
+    initial_means = np.array([
+        [0, 0, 0, 0, Protons_initial.get_vdf(component='core').max()],
+        np.append(np.append(diff_beam_core, np.linalg.norm(diff_beam_core)), Protons_initial.get_vdf(component='beam').max()),
+        np.append(np.append(diff_alpha_core * np.sqrt(2), np.linalg.norm(diff_alpha_core * np.sqrt(2))), Alphas_initial.get_vdf().max())
+    ])
+
     #initial_means = np.array([
-    #    [0, 0, 0, 0, Protons_initial.get_vdf(component='core').max()],
-    #    np.append(np.append(diff_beam_core, np.linalg.norm(diff_beam_core)), Protons_initial.get_vdf(component='beam').max()),
+    #    [0, 0, 0, 0, Protons_initial.get_vdf().max()], 
+    #    [VA, 0, 0, VA, Protons_initial.get_vdf().max() / 10.0],
     #    np.append(np.append(diff_alpha_core, np.linalg.norm(diff_alpha_core)), Alphas_initial.get_vdf().max())
     #])
-
-    initial_means = np.array([
-        [0, 0, 0, 0, Protons_initial.get_vdf().max()], 
-        [VA, 0, 0, VA, Protons_initial.get_vdf().max() / 10.0],
-        np.append(np.append(diff_alpha_core, np.linalg.norm(diff_alpha_core)), Alphas_initial.get_vdf().max())
-    ])
 
     n_component = 3
     f_full, dist_paras_full, probas_full, scores_full = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'full', initial_means, n_component)
@@ -490,6 +462,12 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     Alphas_spherical = SolarWindParticle('alpha', time=tslice_vdf, magfield=magF_SRF, grid=[theta.value, phi.value, vel.value * 1e3], coord_type='Spherical')
     Alphas_spherical.set_vdf(f_alpha_spherical)
 
+    Protons_tied = SolarWindParticle('proton', time=tslice_vdf, magfield=magF_SRF, grid=[theta.value, phi.value, vel.value * 1e3], coord_type='Spherical')
+    Protons_tied.set_vdf(f_core_tied, component='core')
+    Protons_tied.set_vdf(f_beam_tied, component='beam')
+    Alphas_tied = SolarWindParticle('alpha', time=tslice_vdf, magfield=magF_SRF, grid=[theta.value, phi.value, vel.value * 1e3], coord_type='Spherical')
+    Alphas_tied.set_vdf(f_alpha_tied)
+
     # Print the moments to see what the results look like.
     Vpcore_diag = cal_bulk_velocity_Spherical(Protons_diag, 'core') / 1e3
     Vpbeam_diag = cal_bulk_velocity_Spherical(Protons_diag, 'beam') / 1e3
@@ -497,6 +475,9 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     Vpcore_spherical = cal_bulk_velocity_Spherical(Protons_spherical, 'core') / 1e3
     Vpbeam_spherical = cal_bulk_velocity_Spherical(Protons_spherical, 'beam') / 1e3
     Valpha_spherical = cal_bulk_velocity_Spherical(Alphas_spherical) / (np.sqrt(2) * 1e3)
+    Vpcore_tied = cal_bulk_velocity_Spherical(Protons_tied, 'core') / 1e3
+    Vpbeam_tied = cal_bulk_velocity_Spherical(Protons_tied, 'beam') / 1e3
+    Valpha_tied = cal_bulk_velocity_Spherical(Alphas_tied) / (np.sqrt(2) * 1e3)
 
     VpcoreDiagBaligned = rotateVectorIntoFieldAligned(Vpcore_diag[0], Vpcore_diag[1], Vpcore_diag[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
     VpcoreDiagPara, VpcoreDiagPerp = VpcoreDiagBaligned[0], np.sqrt(VpcoreDiagBaligned[1]**2 + VpcoreDiagBaligned[2]**2)
@@ -512,12 +493,24 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     ValphaSphericalBaligned = rotateVectorIntoFieldAligned(Valpha_spherical[0], Valpha_spherical[1], Valpha_spherical[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
     ValphaSphericalPara, ValphaSphericalPerp = ValphaSphericalBaligned[0], np.sqrt(ValphaSphericalBaligned[1]**2 + ValphaSphericalBaligned[2]**2)
 
+    VpcoreTiedBaligned = rotateVectorIntoFieldAligned(Vpcore_tied[0], Vpcore_tied[1], Vpcore_tied[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
+    VpcoreTiedPara, VpcoreTiedPerp = VpcoreTiedBaligned[0], np.sqrt(VpcoreTiedBaligned[1]**2 + VpcoreTiedBaligned[2]**2)
+    VpbeamTiedBaligned = rotateVectorIntoFieldAligned(Vpbeam_tied[0], Vpbeam_tied[1], Vpbeam_tied[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
+    VpbeamTiedPara, VpbeamTiedPerp = VpbeamTiedBaligned[0], np.sqrt(VpbeamTiedBaligned[1]**2 + VpbeamTiedBaligned[2]**2)
+    ValphaTiedBaligned = rotateVectorIntoFieldAligned(Valpha_tied[0], Valpha_tied[1], Valpha_tied[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
+    ValphaTiedPara, ValphaTiedPerp = ValphaTiedBaligned[0], np.sqrt(ValphaTiedBaligned[1]**2 + ValphaTiedBaligned[2]**2)
+
+
     # Calculate the angle between drif speeds with respect to the magnetic field.
     Theta_PCore_Beam_Diag = np.arctan((VpbeamDiagPerp - VpcoreDiagPerp) / (VpbeamDiagPara - VpcoreDiagPara)) * 180 / np.pi
     Theta_PCore_Alpha_Diag = np.arctan((ValphaDiagPerp - VpcoreDiagPerp) / (ValphaDiagPara - VpcoreDiagPara)) * 180 / np.pi
 
     Theta_PCore_Beam_Spherical = np.arctan((VpbeamSphericalPerp - VpcoreSphericalPerp) / (VpbeamSphericalPara - VpcoreSphericalPara)) * 180 / np.pi
     Theta_PCore_Alpha_Spherical = np.arctan((ValphaSphericalPerp - VpcoreSphericalPerp) / (ValphaSphericalPara - VpcoreSphericalPara)) * 180 / np.pi
+
+    Theta_PCore_Beam_Tied = np.arctan((VpbeamTiedPerp - VpcoreTiedPerp) / (VpbeamTiedPara - VpcoreTiedPara)) * 180 / np.pi
+    Theta_PCore_Alpha_Tied = np.arctan((ValphaTiedPerp - VpcoreTiedPerp) / (ValphaTiedPara - VpcoreTiedPara)) * 180 / np.pi
+
 
     print('Diag')
     print('=================================')
@@ -531,10 +524,20 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     print('Vpbeam:', VpbeamSphericalPara, VpbeamSphericalPerp)
     print('Vpalpha:', ValphaSphericalPara, ValphaSphericalPerp)
 
+    print('Tied')
+    print("=================================")
+    print('Vpcore:', VpcoreTiedPara, VpcoreTiedPerp)
+    print('Vpbeam:', VpbeamTiedPara, VpbeamTiedPerp)
+    print('Vpalpha:', ValphaTiedPara, ValphaTiedPerp)
+
+    print('==================================')
+
     print("Beam-Core Theta Diag: ", Theta_PCore_Beam_Diag)
     print("Alpha-Core Theta Diag: ", Theta_PCore_Alpha_Diag)
     print("Beam-Core Theta Spherical: ", Theta_PCore_Beam_Spherical)
     print("Alpha-Core Theta Spherical: ", Theta_PCore_Alpha_Spherical)
+    print("Beam-Core Theta Tied: ", Theta_PCore_Beam_Tied)
+    print("Alpha-Core Theta Tied: ", Theta_PCore_Alpha_Tied)
 
     # Compute the norms of Vpcore and Valpha
     norm_Vpcore_diag = np.linalg.norm(Vpcore_diag)
@@ -542,42 +545,30 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     norm_Vpcore_spherical = np.linalg.norm(Vpcore_spherical)
     norm_Valpha_spherical = np.linalg.norm(Valpha_spherical)
 
-    # First criterion: Ensure norm(Vpcore) < norm(Valpha)
-    #if norm_Vpcore_diag > norm_Valpha_diag and norm_Vpcore_spherical > norm_Valpha_spherical:
-    #    print("Error: Both Diag and Spherical have Vpcore > Valpha. Use the previous one.")
-    #    Protons_current = Protons_initial
-    #    Alphas_current = Alphas_initial
+    options = [
+        (np.abs(Theta_PCore_Alpha_Diag), "Diag", Protons_diag, Alphas_diag, scores_diag),
+        (np.abs(Theta_PCore_Alpha_Spherical), "Spherical", Protons_spherical, Alphas_spherical, scores_spherical),
+        (np.abs(Theta_PCore_Alpha_Tied), "Tied", Protons_tied, Alphas_tied, scores_tied),
+    ]
 
-    #elif norm_Vpcore_diag < norm_Valpha_diag and norm_Vpcore_spherical > norm_Valpha_spherical:
-    #    print("Diag satisfies Vpcore < Valpha, selecting Diag.")
-    #    Protons_current = Protons_diag
-    #    Alphas_current = Alphas_diag
-    #    which_one = 'diag'
-    #    Scores_current = scores_diag
+    # Find the option with the smallest angle
+    best_option = min(options, key=lambda x: x[0])
 
-    #elif norm_Vpcore_diag > norm_Valpha_diag and norm_Vpcore_spherical < norm_Valpha_spherical:
-    #    print("Spherical satisfies Vpcore < Valpha, selecting Spherical.")
-    #    Protons_current = Protons_spherical
-    #    Alphas_current = Alphas_spherical
-    #    which_one = 'spherical'
-    #    Scores_current = scores_spherical
-    #else:
-        # Both satisfy the condition, use Theta_PCore_Alpha comparison
+    # Unpack the result
+    _, which_one, Protons_current, Alphas_current, Scores_current = best_option
 
-    # Which one is more aligned with B is selected.
-    if np.abs(Theta_PCore_Alpha_Diag) < np.abs(Theta_PCore_Alpha_Spherical):
-        print("Diag is better.")
-        which_one = 'diag'
-        Protons_current = Protons_diag
-        Alphas_current = Alphas_diag
-        Scores_current = scores_diag
-    else:
-        print("Spherical is better.")
-        which_one = 'spherical'
-        Protons_current = Protons_spherical
-        Alphas_current = Alphas_spherical
-        Scores_current = scores_spherical
+    # NOTE!!!!!!
+    # For alphas, we need to do the following process:
+    # 1. divide the velocity grid by sqrt(2).
+    # 2. Multiply thhe vdf with 4.
+    Alphas_current.grid['velocity'] /= np.sqrt(2)
+    Alphas_current.set_vdf(Alphas_current.get_vdf() * 4)
 
+    # Save the results. Even fail, we save it.
+    save_pickle(path=result_path+'/Protons.pkl', data=Protons_current)
+    save_pickle(path=result_path+'/Alphas.pkl', data=Alphas_current)
+
+    print(f"Selected option: {which_one} with angle {best_option[0]} degrees")
 
     fig, ax = plt.subplots(1, 2, figsize=(12, 5))
     plot_one(ax[0], ax[1], vel, vdf_corrected, Protons_current.get_vdf(component='core'), Protons_current.get_vdf(component='beam'), Alphas_current.get_vdf(), 'Final', scores=Scores_current)
@@ -621,7 +612,12 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     # Save the important parameter printed to a txt file.
     moments = {
         "Which one": which_one,
-        'mag field SRF': magF_SRF,
+        "Bsrf0": magF_SRF[0],
+        "Bsrf1": magF_SRF[1],
+        "Bsrf2": magF_SRF[2],
+        "Vsrf0_bulk": V_bulk_SRF[0],
+        "Vsrf1_bulk": V_bulk_SRF[1],
+        "Vsrf2_bulk": V_bulk_SRF[2],
         "Npcore": Npcore / 1e6,
         "Npbeam": Npbeam / 1e6,
         "Nalpha": Nalpha / 1e6,
@@ -637,8 +633,12 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         "ValphaPerp": ValphaPerp / 1e3,
         "Vap": np.linalg.norm(Vap) / 1e3,
         "VA": VA,
-        "TparaPcore": TparaProton,
-        "TperpPcore": TperpProton,
+        "TparaPcore": TparaProtonCore,
+        "TperpPcore": TperpProtonCore,
+        "TparaPbeam": TparaProtonBeam,
+        "TperpPbeam": TperpProtonBeam,
+        "TparaProton": TparaProton,
+        "TperpProton": TperpProton,
         "TparaAlpha": TparaAlpha,
         "TperpAlpha": TperpAlpha,
         "Temperature Anisotropy": TperpProton / TparaProton,
@@ -655,10 +655,6 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         for key, value in moments.items():
             f.write(f"{key}: {value}\n")
 
-    # Save the results. Even fail, we save it.
-    save_pickle(path=result_path+'/Protons.pkl', data=Protons_current)
-    save_pickle(path=result_path+'/Alphas.pkl', data=Alphas_current)
-
     # If the separation fails, in order to avoid the failure of the next separation, we use the previous separation as the initial value and return it to the next separation.
 
     if np.abs(Theta_CoreAlpha) > 30:
@@ -670,12 +666,12 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
 
 def main():
     # 110258 went wrong at the beginning.
-    t_start = datetime(2023, 3, 19, 14, 0, 2)
+    t_start = datetime(2022, 3, 2, 20, 30, 1)
     hhmmss = (t_start - timedelta(seconds=4)).strftime("%H%M%S")
-    t_end = datetime(2023, 3, 19, 15, 0, 0)
+    t_end = datetime(2022, 3, 2, 21, 30, 0)
     yymmdd = t_start.strftime('%Y%m%d')
     data_list = os.listdir(f'data/SO/{yymmdd}')
-
+    
     # Load the data, change your path here. Please correspond to the time you set.
     vdf_fname = next(file for file in data_list if 'pas-vdf' in file and not file.startswith('._'))
     grnd_fname = next(file for file in data_list if 'pas-grnd-mom' in file and not file.startswith('._'))

@@ -13,7 +13,7 @@ These codes are well-commented. Enjoy!
 
 Folder structure:
   - main
-    codes
+    - codes in the main folder
     - data
       - SO
         - yymmdd

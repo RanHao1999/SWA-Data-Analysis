@@ -11,6 +11,26 @@ The user needs to manually set the index between alpha and proton, the variable 
 Then, the user can run GMM_3component.py for a long interval.
 These codes are well-commented. Enjoy!
 
+Steps for using the GMM codes:
+
+Let’s say you want to run the GMM from t1 to t2.
+
+1.Go to GMM_Hao_Tutorial.ipynb,
+Set “yymmdd” and “timeslice” to t1,
+
+Manually set “dividing_idx” (the separation velocity index between alpha and proton),
+
+Run the rest of the code
+
+2.Go to GMM_3components.py
+In the main() function: Set t_start as t1 + 4s,
+
+Set t_end as t2,
+
+Run the code
+
+
+
 Folder structure:
   - main
     - codes in the main folder

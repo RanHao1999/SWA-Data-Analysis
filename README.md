@@ -9,6 +9,7 @@ Then, the user can run GMM_3component.py for a long interval.
 These codes are well-commented. Enjoy!
 
 ==========================================================================================================
+
 Steps for using the GMM codes:
 
 Let’s say you want to run the GMM from t1 to t2.

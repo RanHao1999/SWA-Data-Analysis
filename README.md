@@ -8,7 +8,7 @@ The user needs to manually set the index between alpha and proton, the variable 
 Then, the user can run GMM_3component.py for a long interval.
 These codes are well-commented. Enjoy!
 
-==========================================================================================================
+====================================================================================================
 
 Steps for using the GMM codes:
 
@@ -28,7 +28,7 @@ Set t_end as t2,
 
 Run the code
 
-==========================================================================================================
+====================================================================================================
 
 Folder structure:
   - main

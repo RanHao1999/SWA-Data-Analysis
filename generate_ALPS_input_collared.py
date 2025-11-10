@@ -240,7 +240,7 @@ def main():
     # Recommend: 1 min gap.
     tstart = datetime(2022, 10, 23, 2, 6, 0)
     tend = datetime(2022, 10, 23, 2, 7, 0)
-    smooth_sigma = 14
+    smooth_sigma = 10
     yymmdd = tstart.strftime("%Y%m%d")
     hhmmss_str = tstart.strftime("%H%M%S") + "To" + tend.strftime("%H%M%S")
 

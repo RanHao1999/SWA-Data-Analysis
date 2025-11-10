@@ -123,6 +123,7 @@ def bi_maxwellian(v_par, v_perp, n, T_par, T_perp, m, drift_par=0.0):
 
 def renormalize_vdf(vdf, vpar_grid, vper_grid, target_density):
     # After interpolation, we need to renormalize the VDF to match the target (original) density.
+    # This will slightlt change the VDF values.
     delta_v_para = vpar_grid[0, 1] - vpar_grid[0, 0]
     delta_v_perp = vper_grid[1, 0] - vper_grid[0, 0]
 

@@ -160,8 +160,8 @@ def plot_separation(moments_df, yymmdd, idx, hhmmss):
 
     sub_axes[0].plot(times, B_magnitudes, color=colors_use[0], linewidth=0.8, label='|B|')
     sub_axes[0].plot(times, -magfields[:, 0], color=colors_use[1], linewidth=0.8, label='Br')
-    sub_axes[0].plot(times, magfields[:, 1], color=colors_use[2], linewidth=0.8, label='Bt')
-    sub_axes[0].plot(times, -magfields[:, 2], color=colors_use[3], linewidth=0.8, label='Bn')
+    sub_axes[0].plot(times, -magfields[:, 1], color=colors_use[2], linewidth=0.8, label='Bt')
+    sub_axes[0].plot(times, magfields[:, 2], color=colors_use[3], linewidth=0.8, label='Bn')
     sub_axes[0].axvline(times[idx], color='red', linestyle='--')
     sub_axes[0].set_ylabel('B [nT]')
     sub_axes[0].legend(frameon=False, loc='upper right', fontsize=12)

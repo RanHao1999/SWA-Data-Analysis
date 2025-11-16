@@ -189,6 +189,7 @@ def plot_separation(moments_df, yymmdd, idx, hhmmss):
     plt.setp(sub_axes[3].get_xticklabels(), visible=False)
 
     sub_axes[4].plot(times, AlphaDensities / ProtonDensities * 100, color=colors_use[0], linewidth=0.8, label='Na/Np')
+    sub_axes[4].set_ylim(0, 7)
     sub_axes[4].axvline(times[idx], color='red', linestyle='--')
     sub_axes[4].set_ylabel('Na/Np [%]')
     plt.setp(sub_axes[4].get_xticklabels(), visible=False)

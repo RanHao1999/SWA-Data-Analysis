@@ -43,7 +43,7 @@ time series in blocks (e.g. N = 15 slices ≈ 1 min at 4 s cadence).
           other slices in the block, which are then fitted in parallel.
 
    2. Subsequent blocks:
-        - Take the final GMM solution from the previous block.
+        - Take the average of the GMM solutions from the previous block.
         - Use it as the initial guess for the entire new block.
         - Fit all slices in the block in parallel.
 

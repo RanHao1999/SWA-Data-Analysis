@@ -29,8 +29,10 @@ Set t_end as t2,
 Run the code
 
 ====================================================================================================
+
 If you want to have a higher efficiency and are happy to sacrifice a bit accuracy, we managed to parallelised the code.
 Block-wise warm-start for parallel GMM clustering
+
 -----------------------------------------------------------------------------
 To enable parallelisation while keeping temporal continuity, we process the
 time series in blocks (e.g. N = 15 slices ≈ 1 min at 4 s cadence).
@@ -47,6 +49,7 @@ time series in blocks (e.g. N = 15 slices ≈ 1 min at 4 s cadence).
 
 Thus, blocks depend sequentially on each other, but slices within each block
  can be processed independently across multiple cores.
+ 
  -----------------------------------------------------------------------------
 
  Go to GMM_3components_parallelised.py

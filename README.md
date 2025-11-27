@@ -65,6 +65,7 @@ Plot the VDF and visually determine the manual separation index:
 
 ## 🧪 2.2 Parallel GMM.
   To accelerate the computation, use: GMM_3component_parallelised.py
+  
   Concept:
   To enable parallelisation while keeping temporal continuity, we process the time series in blocks (e.g. N = 15 slices ≈ 1 min at 4 s cadence).
    1. First block:

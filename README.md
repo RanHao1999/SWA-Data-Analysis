@@ -51,11 +51,45 @@ Details below.
 # 🔍 1. Separating the first Timeslice (GMM_Hao_Tutorial.ipynb)
 
 Inside the notebook, set  
-   ```python
-   timeslice #The beginning of the interval that you are interested in.
-   # Plot the VDF and visually determine the manual separation index
-   dividing_idx
+  timeslice
+Plot the VDF and visually determine the manual separation index:
+  dividing_idx
 
 ---
+# Of the following 2, choose one that you favour.
+ # 🧪 2.1. Running GMM on Long Intervals (Sequential)
+ Use: GMM_3components.py
+ Set:
+   tstart (the timeslice (GMM_Hao_Tutorial.ipynb) + 4s, just make sure that the folder names match)
+   tend
 
- # 🧪 2. Running GMM on Long Intervals (Sequential)
+# 🧪 2.2 Parallel GMM.
+  To accelerate the computation, use: GMM_3component_parallelised.py
+  Concept:
+  To enable parallelisation while keeping temporal continuity, we process the time series in blocks (e.g. N = 15 slices ≈ 1 min at 4 s cadence).
+   1. First block:
+        - Fit the first slice sequentially with a generic initial guess.
+        - Use its converged parameters as the common initial guess for all
+          other slices in the block, which are then fitted in parallel.
+
+   2. Subsequent blocks:
+        - Take the average GMM solution from the previous block.
+        - Use it as the initial guess for the entire new block.
+        - Fit all slices in the block in parallel.
+
+Thus, blocks depend sequentially on each other, but slices within each block can be processed independently across multiple cores.
+Set:
+  tstart
+  tend
+  block_length
+  n_processes
+  
+
+
+
+
+
+
+
+
+  

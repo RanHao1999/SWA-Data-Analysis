@@ -13,7 +13,7 @@ SWA/PAS measures 3D ion VDFs every 4 seconds by sweeping through energy, elevati
 This repository provides:
 
 - Accurate **GMM-based separation** of ions (core / beam / α)
-- **Parallelised GMM** with block-wise warm-start for high efficiency
+- **Parallelised GMM** with block-wise warm-start for high efficiency (have to sacrifice some accuracy though)
 - Tools for **time-series extraction**, **diagnostic plotting**, and **movie generation**
 - A **collar-generation module** to prepare ALPS-ready inputs
   
@@ -32,3 +32,27 @@ This repository assumes you have Solar Orbiter SWA/PAS data stored in a structur
          -swa-pas-grnd-mom
          -mag_srf
 
+---
+
+# 🎯 Workflow Summary
+
+The recommended workflow is:
+
+1. **Check the first timeslice manually using the tutorial notebook**  
+2. **Run the full GMM separation** (sequential or parallel)
+3. **Extract time-series moments**
+4. **Plot separation results**
+5. **Optionally generate ALPS input**
+6. **Optionally create a movie**
+
+Details below.
+
+---
+# 🔍 1. Separating the first Timeslice (GMM_Hao_Tutorial.ipynb)
+
+Inside the notebook, set  
+   ```python
+   timeslice ( The beginning of the interval that you are interested in).
+   Run the codes, plot the VDF and visually determine the manual separation index, and set.
+   dividing_idx
+  ```python

@@ -56,14 +56,14 @@ Plot the VDF and visually determine the manual separation index:
   dividing_idx
 
 ---
-# Of the following 2, choose one that you favour.
- # 🧪 2.1. Running GMM on Long Intervals (Sequential)
+# GMM Separation, of the following 2, choose one that you favour.
+ ## 🧪 2.1. Running GMM on Long Intervals (Sequential)
  Use: GMM_3components.py
  Set:
    tstart (the timeslice (GMM_Hao_Tutorial.ipynb) + 4s, just make sure that the folder names match)
    tend
 
-# 🧪 2.2 Parallel GMM.
+## 🧪 2.2 Parallel GMM.
   To accelerate the computation, use: GMM_3component_parallelised.py
   Concept:
   To enable parallelisation while keeping temporal continuity, we process the time series in blocks (e.g. N = 15 slices ≈ 1 min at 4 s cadence).

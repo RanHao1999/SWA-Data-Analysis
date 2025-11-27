@@ -56,3 +56,6 @@ Inside the notebook, set
    # Plot the VDF and visually determine the manual separation index
    dividing_idx
 
+---
+
+ # 🧪 2. Running GMM on Long Intervals (Sequential)

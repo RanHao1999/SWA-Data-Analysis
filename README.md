@@ -52,7 +52,7 @@ Details below.
 
 Inside the notebook, set  
    ```python
-   timeslice ( The beginning of the interval that you are interested in).
-   Run the codes, plot the VDF and visually determine the manual separation index, and set.
+   timeslice #The beginning of the interval that you are interested in.
+   # Plot the VDF and visually determine the manual separation index
    dividing_idx
-  ```python
+

@@ -1,5 +1,6 @@
 # SWA-Data-Analysis
 Codes for analyzing Solar Orbiter Solar Wind Analyzer (SWA) data.
+Please star this repository if you found it helpful.
 
 For ion:
 Gausssian Mixture Model (GMM) is employed to separate protons and alpha particles in the measurements.

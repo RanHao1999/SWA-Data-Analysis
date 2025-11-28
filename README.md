@@ -38,7 +38,7 @@ This repository assumes you have Solar Orbiter SWA/PAS data stored in a structur
 
          -mag_srf
 
----
+
 
 # 🎯 Workflow Summary
 

@@ -57,8 +57,11 @@ Details below.
 # 🔍 1. Separating the first Timeslice (GMM_Hao_Tutorial.ipynb)
 
 Inside the notebook, set  
+
   timeslice
+
 Plot the VDF and visually determine the manual separation index:
+
   dividing_idx
 
 ---

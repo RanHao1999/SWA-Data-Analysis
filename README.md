@@ -25,11 +25,17 @@ This codebase is actively used for scientific studies involving Solar Orbiter da
 
 This repository assumes you have Solar Orbiter SWA/PAS data stored in a structure like:
 - data/
+
    -SO/
+
       -yymmdd/
+
          -swa-pas-3d
+
          -swa-pas-vdf
+
          -swa-pas-grnd-mom
+
          -mag_srf
 
 ---

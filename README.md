@@ -45,7 +45,8 @@ In the *main* function, set:
 Here, tstart should be the *timeslice* in GMM_Hao_Tutorial.ipynb + 4s. Make sure that the folder names match.
 
 ### Step 2.2 : Go to GMM_3components_parallelised.py
-**!!! This code is still under developing!!!**
+**!!! This code is still under developing!!! Be Cautious to use it!!!**
+
 Use this if you are happy to sacrifice accuracy and want to increase the speed of calculating.
 
   Concept:

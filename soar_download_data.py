@@ -16,7 +16,6 @@ import time
 start_total = time.time()
 
 # === Configuration ===
-# project_dir = r'c:\Users\chara\OneDrive - University College London\Python scripts\Project2'
 soar_end_point = "https://soar.esac.esa.int/soar-sl-tap"
 
 file_prefixes = [

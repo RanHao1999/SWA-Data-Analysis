@@ -64,7 +64,7 @@ def log10_1D_dist(vel, vdf):
     y = y[mask]
     return x, y
 
-def plot_one(ax1, ax2, vel, vdf_total, f_core, f_beam, f_alpha, co_type, scores):
+def plot_one(ax1, ax2, vel, vdf_total, f_core, f_beam, f_alpha, co_type):
     x, y = log10_1D_dist(vel, vdf_total)
     ax1.plot(x, y, label='Total', color='black')
     ax1.scatter(x, y, s=20, color='black', marker='s')
@@ -77,14 +77,6 @@ def plot_one(ax1, ax2, vel, vdf_total, f_core, f_beam, f_alpha, co_type, scores)
     x, y = log10_1D_dist(vel, f_alpha)
     ax1.plot(x, y, label='Alpha', color='green')
     ax1.scatter(x, y, s=10, color='green')
-    ax1.text(
-        0.4, 0.9,
-        'AIC: {:.2f}\nBIC: {:.2f}'.format(scores[0], scores[1]),
-        fontsize=10,
-        horizontalalignment='center',
-        verticalalignment='center',
-        transform=ax1.transAxes
-    )
     ax1.set_ylim(-12, -5)
     ax1.set_title(co_type)
     ax1.set_xlabel('Vel [km/s]')
@@ -186,20 +178,7 @@ def cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, co_type, initial_means, n_c
     for f in f_all_sorted:
         f[f < 1e-14] = 0
 
-    # Get the BIC scores.
-    k_dict = {
-        'full': 62,     # 3 * 5 + 3 * (5 * (5 = 1)) / 2 + 2 
-        'spherical': 20,    # 3 * 5 + 3 + 2 
-        'diag': 32,    # 3 * 5 + 3 * 5 + 2
-        'tied': 32,    # 3 * 5 + 3 + 2
-    }
-
-    n = len(non_zero_idx[0])
-    AIC_score = - 2 * gmm.score(X) + 2 * k_dict[co_type]
-    BIC_score = k_dict[co_type] * np.log(n) - 2 * gmm.score(X)
-    scores = [AIC_score, BIC_score]
-
-    return f_all_sorted, [means_sorted, covariance_sorted, weights_sorted], probas, scores
+    return f_all_sorted, [means_sorted, covariance_sorted, weights_sorted], probas
 
 
 
@@ -378,24 +357,24 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     ])
 
     n_component = 3
-    f_full, dist_paras_full, probas_full, scores_full = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'full', initial_means, n_component)
+    f_full, dist_paras_full, probas_full = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'full', initial_means, n_component)
     f_alpha_full, f_beam_full, f_core_full = f_full
-    f_diag, dist_paras_diag, probas_diag, scores_diag = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'diag', initial_means, n_component)
+    f_diag, dist_paras_diag, probas_diag = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'diag', initial_means, n_component)
     f_alpha_diag, f_beam_diag, f_core_diag = f_diag
-    f_spherical, dist_paras_spherical, probas_spherical, scores_spherical = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'spherical', initial_means, n_component)
+    f_spherical, dist_paras_spherical, probas_spherical = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'spherical', initial_means, n_component)
     f_alpha_spherical, f_beam_spherical, f_core_spherical = f_spherical
-    f_tied, dist_paras_tied, probas_tied, scores_tied = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'tied', initial_means, n_component)
+    f_tied, dist_paras_tied, probas_tied= cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'tied', initial_means, n_component)
     f_alpha_tied, f_beam_tied, f_core_tied = f_tied
 
     fig, ax = plt.subplots(2, 4, figsize=(20, 8))
     # Full 
-    plot_one(ax[0, 0], ax[1, 0], vel, vdf_corrected, f_core_full, f_beam_full, f_alpha_full, 'Full', scores=scores_full)
+    plot_one(ax[0, 0], ax[1, 0], vel, vdf_corrected, f_core_full, f_beam_full, f_alpha_full, 'Full')
     # diag
-    plot_one(ax[0, 1], ax[1, 1], vel, vdf_corrected, f_core_diag, f_beam_diag, f_alpha_diag, 'Diag', scores=scores_diag)
+    plot_one(ax[0, 1], ax[1, 1], vel, vdf_corrected, f_core_diag, f_beam_diag, f_alpha_diag, 'Diag')
     # tied
-    plot_one(ax[0, 2], ax[1, 2], vel, vdf_corrected, f_core_tied, f_beam_tied, f_alpha_tied, 'Tied', scores=scores_tied)
+    plot_one(ax[0, 2], ax[1, 2], vel, vdf_corrected, f_core_tied, f_beam_tied, f_alpha_tied, 'Tied')
     # spherical
-    plot_one(ax[0, 3], ax[1, 3], vel, vdf_corrected, f_core_spherical, f_beam_spherical, f_alpha_spherical, 'Spherical', scores=scores_spherical)
+    plot_one(ax[0, 3], ax[1, 3], vel, vdf_corrected, f_core_spherical, f_beam_spherical, f_alpha_spherical, 'Spherical')
     plt.savefig(result_path + '/GMM_all.png')
     plt.close() 
 
@@ -418,17 +397,19 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     Alphas_tied = SolarWindParticle('alpha', time=tslice_vdf, magfield=magF_SRF, grid=[theta.value, phi.value, vel.value * 1e3 / np.sqrt(2)], coord_type='Spherical')
     Alphas_tied.set_vdf(f_alpha_tied * 4)
 
-
     # Print the moments to see what the results look like.
     Vpcore_diag = cal_bulk_velocity_Spherical(Protons_diag, 'core') / 1e3
     Vpbeam_diag = cal_bulk_velocity_Spherical(Protons_diag, 'beam') / 1e3
     Valpha_diag = cal_bulk_velocity_Spherical(Alphas_diag) / 1e3
+    Vproton_diag = cal_bulk_velocity_Spherical(Protons_diag) / 1e3
     Vpcore_spherical = cal_bulk_velocity_Spherical(Protons_spherical, 'core') / 1e3
     Vpbeam_spherical = cal_bulk_velocity_Spherical(Protons_spherical, 'beam') / 1e3
     Valpha_spherical = cal_bulk_velocity_Spherical(Alphas_spherical) / 1e3
+    Vproton_spherical = cal_bulk_velocity_Spherical(Protons_spherical) / 1e3
     Vpcore_tied = cal_bulk_velocity_Spherical(Protons_tied, 'core') / 1e3
     Vpbeam_tied = cal_bulk_velocity_Spherical(Protons_tied, 'beam') / 1e3
     Valpha_tied = cal_bulk_velocity_Spherical(Alphas_tied) / 1e3
+    Vproton_tied = cal_bulk_velocity_Spherical(Protons_tied) / 1e3
 
     VpcoreDiagBaligned = rotateVectorIntoFieldAligned(Vpcore_diag[0], Vpcore_diag[1], Vpcore_diag[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
     VpcoreDiagPara, VpcoreDiagPerp = VpcoreDiagBaligned[0], np.sqrt(VpcoreDiagBaligned[1]**2 + VpcoreDiagBaligned[2]**2)
@@ -452,62 +433,63 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     ValphaTiedPara, ValphaTiedPerp = ValphaTiedBaligned[0], np.sqrt(ValphaTiedBaligned[1]**2 + ValphaTiedBaligned[2]**2)
 
     # Calculate the angle between drif speeds with respect to the magnetic field.
-    Theta_PCore_Beam_Diag = np.arctan((VpbeamDiagPerp - VpcoreDiagPerp) / (VpbeamDiagPara - VpcoreDiagPara)) * 180 / np.pi
-    Theta_PCore_Alpha_Diag = np.arctan((ValphaDiagPerp - VpcoreDiagPerp) / (ValphaDiagPara - VpcoreDiagPara)) * 180 / np.pi
+    VdriftDiag = np.array(Valpha_diag) - np.array(Vproton_diag)
+    VdriftSpherical = np.array(Valpha_spherical) - np.array(Vproton_spherical)
+    VdriftTied = np.array(Valpha_tied) - np.array(Vproton_tied)
 
-    Theta_PCore_Beam_Spherical = np.arctan((VpbeamSphericalPerp - VpcoreSphericalPerp) / (VpbeamSphericalPara - VpcoreSphericalPara)) * 180 / np.pi
-    Theta_PCore_Alpha_Spherical = np.arctan((ValphaSphericalPerp - VpcoreSphericalPerp) / (ValphaSphericalPara - VpcoreSphericalPara)) * 180 / np.pi
+    Theta_ProtonAlpha_Diag = angle_between_vectors(magF_SRF, VdriftDiag) * 180 / np.pi
+    print("Angle between drift and B (Diag): ", Theta_ProtonAlpha_Diag)
 
-    Theta_PCore_Beam_Tied = np.arctan((VpbeamTiedPerp - VpcoreTiedPerp) / (VpbeamTiedPara - VpcoreTiedPara)) * 180 / np.pi
-    Theta_PCore_Alpha_Tied = np.arctan((ValphaTiedPerp - VpcoreTiedPerp) / (ValphaTiedPara - VpcoreTiedPara)) * 180 / np.pi
+    Theta_ProtonAlpha_Spherical = angle_between_vectors(magF_SRF, VdriftSpherical) * 180 / np.pi
+    print("Angle between drift and B (Spherical): ", Theta_ProtonAlpha_Spherical)
 
-    print('Diag')
-    print('=================================')
-    print('Vpcore:', VpcoreDiagPara, VpcoreDiagPerp)
-    print('Vpbeam:', VpbeamDiagPara, VpbeamDiagPerp)
-    print('Vpalpha:', ValphaDiagPara, ValphaDiagPerp)
+    Theta_ProtonAlpha_Tied = angle_between_vectors(magF_SRF, VdriftTied) * 180 / np.pi
+    print("Angle between drift and B (Tied): ", Theta_ProtonAlpha_Tied)
 
-    print('Spherical')
-    print("=================================")
-    print('Vpcore:', VpcoreSphericalPara, VpcoreSphericalPerp)
-    print('Vpbeam:', VpbeamSphericalPara, VpbeamSphericalPerp)
-    print('Vpalpha:', ValphaSphericalPara, ValphaSphericalPerp)
+    # the ratio of max(Alpha VDF) / max(Proton VDF)
+    # Sometimes when the separation is doing nonsense, this helps rule them out
+    VDF_Amax_Pmax_tied = np.max(Alphas_tied.get_vdf()) / np.max(Protons_tied.get_vdf())
+    print("VDF_Amax / VDF_Pmax (tied): ", VDF_Amax_Pmax_tied)   
+    VDF_Amax_Pmax_spherical = np.max(Alphas_spherical.get_vdf()) / np.max(Protons_spherical.get_vdf())
+    print("VDF_Amax / VDF_Pmax (spherical): ", VDF_Amax_Pmax_spherical)   
+    VDF_Amax_Pmax_diag = np.max(Alphas_diag.get_vdf()) / np.max(Protons_diag.get_vdf())
+    print("VDF_Amax / VDF_Pmax (diag): ", VDF_Amax_Pmax_diag)
 
-    print('Tied')
-    print("=================================")
-    print('Vpcore:', VpcoreTiedPara, VpcoreTiedPerp)
-    print('Vpbeam:', VpbeamTiedPara, VpbeamTiedPerp)
-    print('Vpalpha:', ValphaTiedPara, ValphaTiedPerp)
+    def alignment_score(theta_deg):
+        """Return distance to best alignment (0° or 180°)."""
+        theta = np.abs(theta_deg)
+        return min(theta, np.abs(180 - theta))
 
-    print('==================================')
-
-    print("Beam-Core Theta Diag: ", Theta_PCore_Beam_Diag)
-    print("Alpha-Core Theta Diag: ", Theta_PCore_Alpha_Diag)
-    print("Beam-Core Theta Spherical: ", Theta_PCore_Beam_Spherical)
-    print("Alpha-Core Theta Spherical: ", Theta_PCore_Alpha_Spherical)
-    print("Beam-Core Theta Tied: ", Theta_PCore_Beam_Tied)
-    print("Alpha-Core Theta Tied: ", Theta_PCore_Alpha_Tied)
-
-
-    # Which one is more aligned with B is selected.
     # Put all angles and corresponding data in a list of tuples
     options = [
-        (np.abs(Theta_PCore_Alpha_Diag), "Diag", Protons_diag, Alphas_diag, scores_diag),
-        (np.abs(Theta_PCore_Alpha_Spherical), "Spherical", Protons_spherical, Alphas_spherical, scores_spherical),
-        (np.abs(Theta_PCore_Alpha_Tied), "Tied", Protons_tied, Alphas_tied, scores_tied),
+        (alignment_score(Theta_ProtonAlpha_Diag), "Diag", Protons_diag, Alphas_diag, VDF_Amax_Pmax_diag),
+        (alignment_score(Theta_ProtonAlpha_Spherical), "Spherical", Protons_spherical, Alphas_spherical, VDF_Amax_Pmax_spherical),
+        (alignment_score(Theta_ProtonAlpha_Tied), "Tied", Protons_tied, Alphas_tied, VDF_Amax_Pmax_tied)
     ]
 
-    # Find the option with the smallest angle
-    best_option = min(options, key=lambda x: x[0])
+    # 1) Remove options with a too large alpha VDF peak
+    # 2) If Alpha_VDF peak is larger than 25% Proton_VDF peak, not sensible! Remove!
+    VDF_Amax_Pmax_threshold = 0.25
+    valid_options = [
+        opt for opt in options
+        if (opt[4] is not None) and np.isfinite(opt[4]) and (opt[4] <= VDF_Amax_Pmax_threshold)
+    ]
+
+
+    # The one with the smallest theta is the best.
+    if len(valid_options) == 0:
+        print("No valid separation found based on criteria.")
+        best_option = min(options, key=lambda x: x[0])
+    else:
+        best_option = min(valid_options, key=lambda x: x[0])
 
     # Unpack the result
-    _, which_one, Protons_current, Alphas_current, Scores_current = best_option
-    #_, which_one, Protons_current, Alphas_current, Scores_current = options[2]
+    best_theta, which_one, Protons_current, Alphas_current, _= best_option
 
     #print(f"{which_one} is better.")
 
     fig, ax = plt.subplots(1, 2, figsize=(12, 5))
-    plot_one(ax[0], ax[1], vel, vdf_corrected, Protons_current.get_vdf(component='core'), Protons_current.get_vdf(component='beam'), Alphas_current.get_vdf() / 4, 'Final', scores=Scores_current)
+    plot_one(ax[0], ax[1], vel, vdf_corrected, Protons_current.get_vdf(component='core'), Protons_current.get_vdf(component='beam'), Alphas_current.get_vdf() / 4, 'Final')
     plt.savefig(result_path + '/Final_Result.png')
     plt.close()
 
@@ -541,9 +523,11 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
 
     Tap_ratio = (TparaProton + 2 * TperpProton) / (TparaAlpha + 2 * TperpAlpha)
 
-    # Theta
-    Theta_CoreBeam = np.arctan((VpbeamPerp - VpcorePerp) / (VpbeamPara - VpcorePara)) * 180 / np.pi
-    Theta_CoreAlpha = np.arctan((ValphaPerp - VpcorePerp) / (ValphaPara - VpcorePara)) * 180 / np.pi
+    # If the separation fails, in order to avoid the failure of the next separation, we use the previous separation as the initial value and return it to the next separation.
+    if np.abs(best_theta) > 40:
+        print("Separation failed, use the previous separation.")
+        Protons_current = Protons_initial
+        Alphas_current = Alphas_initial
 
     # Save the important parameter printed to a txt file.
     moments = {
@@ -554,6 +538,12 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         "Vsrf0_bulk": V_bulk_SRF[0],
         "Vsrf1_bulk": V_bulk_SRF[1],
         "Vsrf2_bulk": V_bulk_SRF[2],
+        "Vsrf0_Proton": Vproton[0] / 1e3,
+        "Vsrf1_Proton": Vproton[1] / 1e3,
+        "Vsrf2_Proton": Vproton[2] / 1e3,
+        "Vsrf0_Alpha": Valpha[0] / 1e3,
+        "Vsrf1_Alpha": Valpha[1] / 1e3,
+        "Vsrf2_Alpha": Valpha[2] / 1e3,
         "Npcore": Npcore / 1e6,
         "Npbeam": Npbeam / 1e6,
         "Nalpha": Nalpha / 1e6,
@@ -580,10 +570,7 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         "Temperature Anisotropy": TperpProton / TparaProton,
         "Alpha Temperature Anisotropy": TperpAlpha / TparaAlpha,
         "Tap_ratio": Tap_ratio,
-        "Theta_BeamCore_B": Theta_CoreBeam,
-        "Theta_AlphaCore_B": Theta_CoreAlpha, 
-        "AIC $ BIC diag": scores_diag,
-        "AIC $ BIC spherical": scores_spherical
+        "Theta_Vdrift_B": best_theta, 
     }
 
     # Save the moments, why not.
@@ -595,12 +582,6 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     save_pickle(path=result_path+'/Protons.pkl', data=Protons_current)
     save_pickle(path=result_path+'/Alphas.pkl', data=Alphas_current)
 
-    # If the separation fails, in order to avoid the failure of the next separation, we use the previous separation as the initial value and return it to the next separation.
-    if np.abs(Theta_CoreAlpha) > 30:
-        print("Separation failed, use the previous separation.")
-        Protons_current = Protons_initial
-        Alphas_current = Alphas_initial
-
     gc.collect()
 
     return Protons_current, Alphas_current
@@ -608,9 +589,9 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
 
 def main():
     # t start should be the the time of the initial separation + 4s.
-    t_start = datetime(2022, 3, 2, 0, 0, 21)
+    t_start = datetime(2023, 10, 3, 1, 59, 57)
     hhmmss = (t_start - timedelta(seconds=4)).strftime("%H%M%S")
-    t_end = datetime(2022, 3, 2, 12, 0, 0)
+    t_end = datetime(2023, 10, 3, 2, 1, 0)
     yymmdd = t_start.strftime('%Y%m%d')
     data_list = os.listdir(f'data/SO/{yymmdd}')
     

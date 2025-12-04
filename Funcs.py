@@ -4,7 +4,6 @@ Starting Date = 2024.10.09
 In this Python script, I will define all the functions that I will use in the main scripts.
 """
 
-
 import os, sys
 import numpy as np
 import pandas as pd
@@ -13,217 +12,21 @@ import scipy
 import scipy.interpolate
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-import plasmapy
+#import plasmapy
 import math
 import pickle
 
 import scipy.constants as const
 import astropy.units as u
-
-
-class SolarWind:
-    """
-    The object stores the: Grid of measurements (V_para, V_perp1, V_perp2), and VDF of different species (vdf_proton, alpha, and electron).
-    """
-
-    def __init__(self, time, elevation, azimuth, velocity, magfield, dist_params=None,
-                 vdf_proton=None, vdf_alpha=None, vdf_electron=None):
-        self.time = time
-        self.elevation = elevation.to(u.deg).value    # in deg
-        self.azimuth = azimuth.to(u.deg).value        # in deg
-        self.velocity = velocity.to(u.m / u.s).value  # in m /s
-        self.magfield = magfield
-        self.dist_params = dist_params                # Distribution parameters from GMM (means, covariances, weights), for error estimation, [means, covariances, weights]
-
-        # Initialize VDFs
-        self.vdf = {
-            "proton": vdf_proton,  # Can be a single array or a dict {"core": ..., "beam": ...}
-            "alpha": vdf_alpha,    # Same flexibility as proton
-            "electron": np.array(vdf_electron) if vdf_electron is not None else None
-        }
-
-    def set_vdf(self, species, vdf, component=None):
-        """
-        Set a VDF for a species or its sub-component (core/beam).
-        If no component is specified, store as a single VDF.
-        """
-        if species not in self.vdf:
-            raise ValueError("Species not in the list. Use proton, alpha, or electron.")
-        
-        # Check for single or sub-component VDF
-        if component is None:
-            self.vdf[species] = np.array(vdf)
-        else:
-            if self.vdf[species] is None or not isinstance(self.vdf[species], dict):
-                self.vdf[species] = {"core": None, "beam": None}
-            if component not in self.vdf[species]:
-                raise ValueError(f"Invalid component: {component}. Use 'core' or 'beam'.")
-            # Explicitly check if vdf is None instead of relying on `if vdf`
-            if vdf is None:
-                raise ValueError(f"VDF data cannot be None for {species} {component}.")
-            self.vdf[species][component] = np.array(vdf)
-
-    def get_vdf(self, species, component=None):
-        if species not in self.vdf:
-            raise ValueError("Species not in the list. Use proton, alpha, or electron.")
-        if component is None:
-            return self.vdf[species]
-        else:
-            if not isinstance(self.vdf[species], dict) or component not in self.vdf[species]:
-                raise ValueError(f"Component not found for {species}: {component}.")
-            return self.vdf[species][component]
-
-    def cal_density(self, species, component=None):
-        if species not in self.vdf:
-            raise ValueError("Species not in the list. Use proton, alpha, or electron.")
-        vdf_data = None
-
-        if isinstance(self.vdf[species], dict):
-            if component:
-                vdf_data = self.get_vdf(species, component)
-            else:
-                vdf_data = sum(self.vdf[species][comp] for comp in self.vdf[species] if self.vdf[species][comp] is not None)
-        else:
-            vdf_data = self.vdf[species]
-
-        if vdf_data is None:
-            raise ValueError(f"No VDF data available for {species} {component if component else ''}.")
-
-        subazi, subele, subspeed = np.meshgrid(self.azimuth, self.elevation, self.velocity, indexing='ij')
-        jacobian = subspeed**2 * np.cos(np.radians(subele))
-        int_kernal = vdf_data * jacobian
-        int_ele = np.trapz(int_kernal, x=np.radians(self.elevation), axis=1)
-        int_ele_energy = -np.trapz(int_ele, x=self.velocity, axis=1)
-        int_all = np.trapz(int_ele_energy, x=np.radians(self.azimuth), axis=0)
-
-        return int_all
-
-    def cal_bulk_velocity(self, species, component=None):
-        if species not in self.vdf:
-            raise ValueError("Species not in the list. Use proton, alpha, or electron.")
-        vdf_data = None
-
-        if isinstance(self.vdf[species], dict):
-            if component:
-                vdf_data = self.get_vdf(species, component)
-            else:
-                vdf_data = sum(self.vdf[species][comp] for comp in self.vdf[species] if self.vdf[species][comp] is not None)
-        else:
-            vdf_data = self.vdf[species]
-
-        if vdf_data is None:
-            raise ValueError(f"No VDF data available for {species} {component if component else ''}.")
-
-        subazi, subele, subspeed = np.meshgrid(self.azimuth, self.elevation, self.velocity, indexing='ij')
-
-        jacobian = subspeed**2 * np.cos(np.radians(subele))
-        vx_kernal = -vdf_data * subspeed * np.cos(np.radians(subele)) * np.cos(np.radians(subazi)) * jacobian
-        vy_kernal = vdf_data * subspeed * np.cos(np.radians(subele)) * np.sin(np.radians(subazi)) * jacobian
-        vz_kernal = -vdf_data * subspeed * np.sin(np.radians(subele)) * jacobian
-
-        vx_ele = np.trapz(vx_kernal, x=np.radians(self.elevation), axis=1)
-        vy_ele = np.trapz(vy_kernal, x=np.radians(self.elevation), axis=1)
-        vz_ele = np.trapz(vz_kernal, x=np.radians(self.elevation), axis=1)
-
-        vx_ele_energy = -np.trapz(vx_ele, x=self.velocity, axis=1)
-        vy_ele_energy = -np.trapz(vy_ele, x=self.velocity, axis=1)
-        vz_ele_energy = -np.trapz(vz_ele, x=self.velocity, axis=1)
-
-        vx_all = np.trapz(vx_ele_energy, x=np.radians(self.azimuth), axis=0)
-        vy_all = np.trapz(vy_ele_energy, x=np.radians(self.azimuth), axis=0)
-        vz_all = np.trapz(vz_ele_energy, x=np.radians(self.azimuth), axis=0)
-
-        density = self.cal_density(species, component)
-        vx_bulk = vx_all / density
-        vy_bulk = vy_all / density
-        vz_bulk = vz_all / density
-
-        return np.array([vx_bulk, vy_bulk, vz_bulk])
-
-    def cal_pressure_tensor(self, species, component=None):
-        if species not in self.vdf:
-            raise ValueError("Species not in the list. Use proton, alpha, or electron.")
-        vdf_data = None
-
-        if isinstance(self.vdf[species], dict):
-            if component:
-                vdf_data = self.get_vdf(species, component)
-            else:
-                vdf_data = sum(self.vdf[species][comp] for comp in self.vdf[species] if self.vdf[species][comp] is not None)
-        else:
-            vdf_data = self.vdf[species]
-
-        if vdf_data is None:
-            raise ValueError(f"No VDF data available for {species} {component if component else ''}.")
-
-        mass_dict = {"proton": 1.6726219e-27, "alpha": 6.64424e-27, "electron": 9.10938356e-31}
-        mass = mass_dict.get(species)
-
-        vx_bulk, vy_bulk, vz_bulk = self.cal_bulk_velocity(species, component)
-
-        subazi, subele, subspeed = np.meshgrid(self.azimuth, self.elevation, self.velocity, indexing='ij')
-        vx = -subspeed * np.cos(np.radians(subele)) * np.cos(np.radians(subazi))
-        vy = subspeed * np.cos(np.radians(subele)) * np.sin(np.radians(subazi))
-        vz = -subspeed * np.sin(np.radians(subele))
-
-        dvx = vx - vx_bulk
-        dvy = vy - vy_bulk
-        dvz = vz - vz_bulk
-
-        jacobian = subspeed**2 * np.cos(np.radians(subele))
-        Pxx_kernal = vdf_data * mass * dvx * dvx * jacobian
-        Pxy_kernal = vdf_data * mass * dvx * dvy * jacobian
-        Pxz_kernal = vdf_data * mass * dvx * dvz * jacobian
-        Pyy_kernal = vdf_data * mass * dvy * dvy * jacobian
-        Pyz_kernal = vdf_data * mass * dvy * dvz * jacobian
-        Pzz_kernal = vdf_data * mass * dvz * dvz * jacobian
-
-        def integrate_pressure(kernal):
-            int_ele = np.trapz(kernal, x=np.radians(self.elevation), axis=1)
-            int_energy = -np.trapz(int_ele, x=self.velocity, axis=1)
-            return np.trapz(int_energy, x=np.radians(self.azimuth), axis=0)
-
-        Pxx = integrate_pressure(Pxx_kernal)
-        Pxy = integrate_pressure(Pxy_kernal)
-        Pxz = integrate_pressure(Pxz_kernal)
-        Pyy = integrate_pressure(Pyy_kernal)
-        Pyz = integrate_pressure(Pyz_kernal)
-        Pzz = integrate_pressure(Pzz_kernal)
-
-        pressure_tensor = np.array([[Pxx, Pxy, Pxz],
-                                    [Pxy, Pyy, Pyz],
-                                    [Pxz, Pyz, Pzz]])
-
-        return pressure_tensor
-
-    def __repr__(self):
-        """
-        Provide a summary of the SolarWind object, showing time, magnetic field,
-        and the status of VDFs (set/not set for proton, alpha, and electron).
-        """
-        def get_status(vdf):
-            if vdf is None:
-                return "not set"
-            if isinstance(vdf, dict):
-                core_set = "set" if vdf.get("core") is not None else "not set"
-                beam_set = "set" if vdf.get("beam") is not None else "not set"
-                return f"core: {core_set}, beam: {beam_set}"
-            return "single VDF set"
-
-        proton_status = get_status(self.vdf["proton"])
-        alpha_status = get_status(self.vdf["alpha"])
-        electron_status = "set" if self.vdf["electron"] is not None else "not set"
-        
-        return (f"Time = {self.time}, "
-                f"Magnetic Field = {self.magfield}, "
-                f"Proton VDF = {proton_status}, "
-                f"Alpha VDF = {alpha_status}, "
-                f"Electron VDF = {electron_status}")
+from matplotlib.collections import LineCollection
 
 
 def resample_to_target_time(dataframe, target_tstart, target_tend, target_dt, keys, units=None):
     # The function for resampling the data to the target time resolution.
     # Turn the index of the dataframe to numbers according to their gap to the first point (time index).
+    # Unit of dt: seconds
+    buffer = timedelta(seconds=target_dt)
+    dataframe = dataframe.loc[target_tstart: target_tend]
     time = dataframe.index
     time_index_in_num = [(time[i] - time[0]).total_seconds() for i in range(len(time))]
 
@@ -383,3 +186,219 @@ def OneParticleNoiseLevel(count_cdffile, vdffile):
     one_particle_noise_level = np.nanpercentile(noise_level, 99.99, axis=0)
 
     return one_particle_noise_level
+
+def resample_cdf(cdf_file, variable_names, dt, tstart, tend, time_key='Epoch'):
+    """
+    This function interpolates the data in the cdf file to a target time grid, and returns a dataframe.
+    """
+    time = cdf_file[time_key][...]
+    df = pd.DataFrame({'time': time})
+    df.set_index('time', inplace=True)
+
+    for key in variable_names:
+        data = cdf_file[key][...]
+        if data.ndim > 1:
+            for i in range(data.shape[-1]):
+                df[f"{key}_{i}"] = data[..., i]
+        else:
+            df[key] = data
+
+    # Resample with specified dt and interpolate
+    df_filtered = df[(df.index >= tstart) & (df.index <= tend)]
+    
+    df_resampled = df_filtered.resample(dt).mean().interpolate('time')
+
+    df_resampled = df_resampled.loc[tstart: tend]  # clip to exact time range
+    df_resampled.index.name = 'time'
+
+    # Optional: Clip again just in case resample generated anything slightly outside
+    df_resampled = df_resampled[(df_resampled.index >= tstart) & (df_resampled.index <= tend)]
+
+    return df_resampled
+
+def average_in_interval(SO_data, time_string, variable, date):
+    """
+    Returns the average of a variable in SO_data over a time interval defined by time_string.
+
+    Parameters:
+    - SO_data: pandas DataFrame with datetime index
+    - time_string: str in the format "HHMMSSToHHMMSS"
+    - variable: name of the column to average
+    - date: date of the interval, format 'YYYY-MM-DD'
+
+    Returns:
+    - mean value of the variable over the interval
+    """
+    # Parse the time string
+    start_str, end_str = time_string.split("To")
+    start_time = pd.to_datetime(f"{date} {start_str[:2]}:{start_str[2:4]}:{start_str[4:]}")
+    end_time = pd.to_datetime(f"{date} {end_str[:2]}:{end_str[2:4]}:{end_str[4:]}")
+
+    # Slice the data using a mask
+    mask = (SO_data.index >= start_time) & (SO_data.index <= end_time)
+    data_in_range = SO_data.loc[mask]
+
+    # Return the average of the variable
+    return data_in_range[variable].mean()
+
+def sound_speed(Tp, Ta, Te, Np, Na, Ne):
+    """
+    Calculate the sound speed (c_s) for a plasma with protons, alphas, and electrons.
+    
+    Parameters:
+    - Tp : float
+        Proton temperature (in eV)
+    - Ta : float
+        Alpha particle temperature (in eV)
+    - Te : float
+        Electron temperature (in eV)
+    - Np : float
+        Proton number density (in m^-3)
+    - Na : float
+        Alpha particle number density (in m^-3)
+    - Ne : float
+        Electron number density (in m^-3)
+
+    Returns:
+    - c_s : float
+        Sound speed (in m/s)
+    """
+
+    # Physical constants
+    eV_to_J = 1.602176634e-19  # Joules per eV
+    mp = 1.6726219e-27         # Proton mass, kg
+    me = 9.10938356e-31        # Electron mass, kg
+    ma = 6.644657e-27          # Alpha particle mass, kg
+
+    # Gamma factors
+    gamma_e = 1.0  # Electrons isothermal
+    gamma_i = 5.0 / 3.0  # Ions adiabatic
+
+    # Mass density (rho)
+    rho = Np * mp + Na * ma + Ne * me  # kg/m^3
+
+    # Pressure contributions (in Pascals)
+    Pp = Np * Tp * eV_to_J  # Proton pressure
+    Pa = Na * Ta * eV_to_J  # Alpha pressure
+    Pe = Ne * Te * eV_to_J  # Electron pressure
+
+    # Total pressure with gamma factors
+    total_pressure = gamma_e * Pe + gamma_i * (Pp + Pa)
+
+    # Sound speed
+    cs = (total_pressure / rho) ** 0.5  # in m/s
+
+    return cs
+
+def plot_signed_segments(ax, x, y, linestyle='solid', label=None, linewidth=2):
+    """
+    Plot continuous |y| vs x, coloring by the sign of y. 
+    Breaks into segments where sign flips and uses ax.plot for full control.
+
+    Parameters:
+        ax        : matplotlib axis
+        x, y      : arrays of equal length
+        linestyle : 'solid', 'dashed', 'dotted', 'dashdot'
+        label     : optional legend label (only shown on first segment)
+        linewidth : line width
+    """
+    x = np.asarray(x)
+    y = np.asarray(y)
+    abs_y = np.abs(y)
+
+    style_map = {
+        'solid': '-',
+        'dashed': '--',
+        'dotted': ':',
+        'dashdot': '-.'
+    }
+    line_style = style_map.get(linestyle, '-')
+
+    # Helper: split into segments of the same sign
+    def split_by_sign(x, y):
+        segments = []
+        start_idx = 0
+        for i in range(1, len(y)):
+            if np.sign(y[i]) != np.sign(y[i - 1]):
+                segments.append((x[start_idx:i+1], y[start_idx:i+1]))
+                start_idx = i
+        segments.append((x[start_idx:], y[start_idx:]))  # last one
+        return segments
+
+    # Segment and plot
+    segments = split_by_sign(x, y)
+    for i, (x_seg, y_seg) in enumerate(segments):
+        color = 'blue' if y_seg[0] >= 0 else 'red'
+        ax.plot(
+            x_seg, np.abs(y_seg),
+            color=color,
+            linestyle=line_style,
+            linewidth=linewidth,
+            label=label if i == 0 and label is not None else None
+        )
+        
+    ax.annotate('+', xy=(0.1, 0.9), xycoords='axes fraction', ha='center', color='blue')
+    ax.annotate('-', xy=(0.2, 0.9), xycoords='axes fraction', ha='center', color='red')
+    
+
+def cal_overlap(protons, alphas):
+    """
+    Calculate the overlap parameter between proton and alpha VDFs.
+    Overlap parameter is defined as the integral of the minimum of the two VDFs over velocity space.
+
+    Parameters:
+    - protons: SolarWind object for protons
+    - alphas: SolarWind object for alphas
+
+    Returns:
+    - overlap_param: float, the overlap parameter
+    """
+    vdf_proton = protons.get_vdf()
+    vdf_alpha = alphas.get_vdf() / 4.0
+
+    vdf_proton_1d = np.sum(vdf_proton, axis=(0, 1))
+    vdf_alpha_1d = np.sum(vdf_alpha, axis=(0, 1))
+
+    min_vdf = np.minimum(vdf_proton_1d, vdf_alpha_1d)
+    overlap = np.sum(min_vdf) / np.sum(vdf_alpha_1d)
+    
+    return overlap
+
+def angle_between_vectors(V1, V2):
+    """
+    Compute the angle between two vectors (or arrays of vectors) in radians.
+    
+    Parameters
+    ----------
+    B : array_like
+        Magnetic field vector(s), shape (..., 3)
+    Vd : array_like
+        Drift velocity vector(s), shape (..., 3)
+    
+    Returns
+    -------
+    theta : ndarray
+        Angle(s) between V1 and V2 in radians, shape (...)
+    """
+    V1 = np.asarray(V1)
+    V2 = np.asarray(V2)
+
+    # Dot product along last axis
+    dot = np.sum(V1 * V2, axis=-1)
+    
+    # Norms
+    V1_norm = np.linalg.norm(V1, axis=-1)
+    V2_norm = np.linalg.norm(V2, axis=-1)
+
+    # Avoid division by zero
+    denom = V1_norm * V2_norm
+    # Where denom == 0, set angle to NaN
+    cos_theta = np.zeros_like(dot, dtype=float)
+    valid = denom > 0
+    cos_theta[valid] = dot[valid] / denom[valid]
+    
+    # Numerical safety: clip into [-1, 1]
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    
+    theta = np.arccos(cos_theta)
+    return theta

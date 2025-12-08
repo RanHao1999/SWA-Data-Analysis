@@ -389,15 +389,31 @@ def Temperature_para_perp(SW_Spherical, component=None):
 
 # In 2D field-aligned.
 # Here, we calculate the density, bulk velocity, and temperature in 2D.
-def cal_density_2D(SW_2D, component=None):
-    Vpara = SW_2D.grid['Vpara']
-    Vperp = SW_2D.grid['Vperp']
+# Since the grid is now regular, it is much easier.
+def cal_2D_moments(Particle_2D):
+    # After projecting to 2D, sometimes the moments change a bit. Please be careful!
+    # return: density, u_para, Tpara_eV, Tperp_eV
+    mp = 1.67262192e-27 # kg
+    e = 1.602176634e-19  # elementary charge in Coulombs
+    
+    Vpara = Particle_2D.grid['Vpara']
+    Vperp = Particle_2D.grid['Vperp']
+    Vpara_grid, Vperp_grid = np.meshgrid(Vpara, Vperp)
 
-    Vpara_grid, Vperp_grid = np.meshgrid(Vpara, Vperp, indexing='ij')
-    int_kernal = SW_2D.get_vdf(component) * 2 * np.pi * Vperp_grid
-    int_para = np.trapz(int_kernal, x=Vpara, axis=0)
-    int_perp = np.trapz(int_para, x=Vperp, axis=0)
+    delta_v_para = Vpara_grid[0, 1] - Vpara_grid[0, 0]
+    delta_v_perp = Vperp_grid[1, 0] - Vperp_grid[0, 0]
+    vdf_2D = Particle_2D.get_vdf()
 
-    return int_perp
+    # Cal moments
+    density = 2 * np.pi * np.sum(vdf_2D.T * Vperp_grid) * delta_v_para * delta_v_perp
 
-# More will be added.
+    u_para = (2 * np.pi / density) * np.sum(vdf_2D.T * Vperp_grid * Vpara_grid) * delta_v_para * delta_v_perp
+
+    Tpara_eV = (2 * np.pi /density) * np.sum( 
+        vdf_2D.T * Vperp_grid * (Vpara_grid - u_para)**2 
+        ) * delta_v_para * delta_v_perp * mp / e
+    Tperp_eV = (np.pi / density) * np.sum(
+        vdf_2D.T * Vperp_grid * Vperp_grid  ** 2
+        ) * delta_v_para * delta_v_perp * mp / e
+
+    return density, u_para, Tpara_eV, Tperp_eV

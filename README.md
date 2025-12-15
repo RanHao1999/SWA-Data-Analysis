@@ -14,11 +14,11 @@ If you find this repository useful, please consider giving it a ⭐.
 Data includes:
 -swa-pas-3d, -swa-pas-vdf, -swa-pas-grnd-mom, -mag_srf
 
-Or you can simply run the soar_download_data.py.
+Or you can simply run the sunpy_soar_download.py.
 Just make sure you have set the time properly:
 
-	start_date
-	end_date
+	time_start
+	time_end
 
 ---
 

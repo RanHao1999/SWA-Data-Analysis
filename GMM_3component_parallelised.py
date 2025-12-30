@@ -127,12 +127,21 @@ def collect_all_idx_times(days, t_start, t_end):
         vdf_cdffile = pycdf.CDF(f"data/SO/{yymmdd}/{vdf_fname}")
         epoch_vdf = vdf_cdffile['Epoch'][...]
 
+        mag_fname = next(file for file in data_list
+                         if 'mag-srf' in file and not file.startswith('._'))
+        mag_cdffile = pycdf.CDF(f"data/SO/{yymmdd}/{mag_fname}")
+        epoch_mag = mag_cdffile['EPOCH'][...]
+
+        # Here, make sure t_start and t_end does not include data where MAG has no measurement!
+        t_start_thisday = max(t_start, epoch_mag[0])
+        t_end_thisday = min(t_end, epoch_mag[-1])
+
         # Get today's indices
-        idx_times = FindIndexinInterval(t_start, t_end, epoch_vdf)
+        idx_times = FindIndexinInterval(t_start_thisday, t_end_thisday, epoch_vdf)
         print(len(idx_times), "time indices found in total.")
 
         # Find irregular times (using your function)
-        bad_idx, deltas = find_irregular_times(t_start, t_end, epoch_vdf)
+        bad_idx, deltas = find_irregular_times(t_start_thisday, t_end_thisday, epoch_vdf)
         print("Irregular intervals:", len(bad_idx))
 
         # Optional: print details
@@ -143,6 +152,7 @@ def collect_all_idx_times(days, t_start, t_end):
         bad_set = set(bad_idx)
         idx_times = [item for item in idx_times if item[0] not in bad_set]
         print(len(idx_times), "indices left after filtering.")
+
 
         # Append to the grand list
         all_idx_times.extend(idx_times)
@@ -335,7 +345,6 @@ def all_process(idx_time, initial_means):
     # Load the data, change your path here. Please correspond to the time you set.
     vdf_fname = next(file for file in data_list if 'pas-vdf' in file and not file.startswith('._'))
     grnd_fname = next(file for file in data_list if 'pas-grnd-mom' in file and not file.startswith('._'))
-
     mag_fname = next(file for file in data_list if 'mag-srf-normal' in file and not file.startswith('._'))
 
     vdf_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{vdf_fname}')
@@ -435,7 +444,7 @@ def all_process(idx_time, initial_means):
         ax.annotate(str(np.where(mask)[0][idx]), (xi, yi), textcoords="offset points", xytext=(0, 5), ha='center', fontsize=8)
     ax.set_xlabel('Vel [km/s]')
     ax.set_ylabel('log10(VDF)')
-    plt.savefig(result_path + '/Corrected_VDF_1D.png')
+    # plt.savefig(result_path + '/Corrected_VDF_1D.png')
     plt.close()
 
     # Correct again. Remove the points who have no neighboring points.
@@ -487,7 +496,7 @@ def all_process(idx_time, initial_means):
         ax.annotate(str(np.where(mask)[0][idx]), (xi, yi), textcoords="offset points", xytext=(0, 5), ha='center', fontsize=8)
     ax.set_xlabel('Vel [km/s]')
     ax.set_ylabel('log10(VDF)')
-    plt.savefig(result_path + '/Corrected_VDF_Cleaned.png')
+    # plt.savefig(result_path + '/Corrected_VDF_Cleaned.png')
     plt.close()
 
     # Initial means
@@ -517,7 +526,7 @@ def all_process(idx_time, initial_means):
     plot_one(ax[0, 2], ax[1, 2], vel, vdf_corrected, f_core_tied, f_beam_tied, f_alpha_tied, 'Tied')
     # spherical
     plot_one(ax[0, 3], ax[1, 3], vel, vdf_corrected, f_core_spherical, f_beam_spherical, f_alpha_spherical, 'Spherical')
-    plt.savefig(result_path + '/GMM_all.png')
+    # plt.savefig(result_path + '/GMM_all.png')
     plt.close() 
 
     # Carry on with diag, tied, and spherical.
@@ -744,17 +753,17 @@ def parallelised_all_process(idx_time_list, initial_means, n_processes):
 def main():
     total_tstart = time.time()
     # t start should be the the time of the initial separation + 4s.
-    t_start = datetime(2023, 10, 3, 1, 0, 5)
+    t_start = datetime(2023, 10, 2, 23, 55, 41)
     hhmmss_start = (t_start - timedelta(seconds=4)).strftime("%H%M%S")
     yymmdd_start = t_start.strftime('%Y%m%d')
-    t_end = datetime(2023, 10, 3, 23, 59, 0)
+    t_end = datetime(2023, 10, 10, 12, 0, 0)
     
     # block length in seconds
-    block_length = 120  # 1 minutes, 15 timeslices
+    block_length = 60  # in seconds
     block_size = block_length // 4  # since data is at 4s resolution
     
     # Number of parallel processes, for maximum efficiency, we recommend it to be able to be evenly divided by the block size.
-    n_processes = 30
+    n_processes = 15
     
     # Initial Values
     Protons_initial = read_pickle(f'result/SO/{yymmdd_start}/Particles/Ions/{hhmmss_start}/Protons.pkl')
@@ -775,11 +784,12 @@ def main():
             count_fname = next(file for file in data_list if 'pas-3d' in file and not file.startswith('._'))
             vdf_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{vdf_fname}')
             count_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{count_fname}')
+            if os.path.exists(f'result/SO/{yymmdd}') is False:
+                os.makedirs(f'result/SO/{yymmdd}')
             one_particle_noise_level = OneParticleNoiseLevel(count_cdffile, vdf_cdffile)
             np.savez(f'result/SO/{yymmdd}/one_particle_noise_level.npz', noise_level=one_particle_noise_level)
             vdf_cdffile.close()
             count_cdffile.close()
-
 
     # Parallelised processing.
     for i in range(0, len(idx_times), block_size):
@@ -787,8 +797,7 @@ def main():
         if not idx_time_list:
             continue  # Skip if the list is empty
         initial_means = parallelised_all_process(
-            idx_time_list, initial_means=initial_means,  n_processes=n_processes
-        )
+            idx_time_list, initial_means=initial_means,  n_processes=n_processes)
 
     total_tend = time.time()
     print(f'Total time used: {total_tend - total_tstart} seconds')

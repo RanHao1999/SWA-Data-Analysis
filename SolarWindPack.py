@@ -264,7 +264,10 @@ def cal_density_Spherical(SW_spherical, component=None):
 
     return float(int_all)
 
-def cal_bulk_velocity_Spherical(SW_spherical, component=None):
+def cal_bulk_velocity_Spherical(SW_spherical, component=None, velocity_sign_convention = [-1, 1, -1]):
+    # velocity_sign_convention: to convert from SRF to standard RTN/SRF coordiantes.
+    # Default is for Solar Orbiter to SRF (-1, 1, -1).
+    # For PSP, use [1, 1, 1].
 
     int_kernal = SW_spherical.get_vdf(component)
     azimuth = SW_spherical.grid['azimuth']
@@ -278,9 +281,9 @@ def cal_bulk_velocity_Spherical(SW_spherical, component=None):
     # Calculate vector components for bulk velocity
     jacobian = subspeed**2 * np.cos(np.radians(subele))
 
-    vx_kernal = -int_kernal * subspeed * np.cos(np.radians(subele)) * np.cos(np.radians(subazi)) * jacobian
-    vy_kernal = int_kernal * subspeed * np.cos(np.radians(subele)) * np.sin(np.radians(subazi)) * jacobian
-    vz_kernal = -int_kernal * subspeed * np.sin(np.radians(subele)) * jacobian
+    vx_kernal = velocity_sign_convention[0] * int_kernal * subspeed * np.cos(np.radians(subele)) * np.cos(np.radians(subazi)) * jacobian
+    vy_kernal = velocity_sign_convention[1] * int_kernal * subspeed * np.cos(np.radians(subele)) * np.sin(np.radians(subazi)) * jacobian
+    vz_kernal = velocity_sign_convention[2] * int_kernal * subspeed * np.sin(np.radians(subele)) * jacobian
 
     # Integrate along each dimension
     vx_ele = np.trapz(vx_kernal, x=np.radians(elevation), axis=1)
@@ -304,7 +307,10 @@ def cal_bulk_velocity_Spherical(SW_spherical, component=None):
     # Return the bulk velocity as a vector
     return np.array([vx_bulk, vy_bulk, vz_bulk])
 
-def cal_pressure_tensor_Spherical(SW_spherical, component=None):
+def cal_pressure_tensor_Spherical(SW_spherical, component=None, velocity_sign_convention = [-1, 1, -1]):
+    # velocity_sign_convention: to convert from SRF to standard RTN/SRF coordiantes.
+    # Default is for Solar Orbiter to SRF (-1, 1, -1).
+    # For PSP, use [1, 1, 1].
     mass_proton = 1.6726219e-27 # kg
     mass_alpha = 6.6464731e-27 # kg
     mass_electron = 9.10938356e-31 # kg
@@ -317,7 +323,7 @@ def cal_pressure_tensor_Spherical(SW_spherical, component=None):
 
     # Necessary parameters.
     mass = mass_dict[SW_spherical.species]
-    vx_bulk, vy_bulk, vz_bulk = cal_bulk_velocity_Spherical(SW_spherical, component)
+    vx_bulk, vy_bulk, vz_bulk = cal_bulk_velocity_Spherical(SW_spherical, velocity_sign_convention=velocity_sign_convention, component=component)
     int_kernal = SW_spherical.get_vdf(component)
     azimuth = SW_spherical.grid['azimuth']
     elevation = SW_spherical.grid['elevation']
@@ -325,9 +331,9 @@ def cal_pressure_tensor_Spherical(SW_spherical, component=None):
 
     subazi, subele, subspeed = np.meshgrid(azimuth, elevation, velocity, indexing='ij')
 
-    vx = -subspeed * np.cos(np.radians(subele)) * np.cos(np.radians(subazi))
-    vy = subspeed * np.cos(np.radians(subele)) * np.sin(np.radians(subazi))
-    vz = -subspeed * np.sin(np.radians(subele))
+    vx = velocity_sign_convention[0] * subspeed * np.cos(np.radians(subele)) * np.cos(np.radians(subazi))
+    vy = velocity_sign_convention[1] * subspeed * np.cos(np.radians(subele)) * np.sin(np.radians(subazi))
+    vz = velocity_sign_convention[2] * subspeed * np.sin(np.radians(subele))
 
     dvx = vx - vx_bulk
     dvy = vy - vy_bulk
@@ -357,7 +363,10 @@ def cal_pressure_tensor_Spherical(SW_spherical, component=None):
 
     return np.array([[Pxx, Pxy, Pxz], [Pxy, Pyy, Pyz], [Pxz, Pyz, Pzz]])
 
-def Temperature_para_perp(SW_Spherical, component=None):
+def Temperature_para_perp(SW_Spherical, component=None, velocity_sign_convention=[-1, 1, -1]):
+    # velocity_sign_convention: to convert from SRF to standard RTN/SRF coordiantes.
+    # Default is for Solar Orbiter to SRF (-1, 1, -1).
+    # For PSP in INST, use [1, 1, 1].
 
     k_B = 1.38064852e-23 # J/K
     Density = cal_density_Spherical(SW_Spherical, component)
@@ -371,7 +380,7 @@ def Temperature_para_perp(SW_Spherical, component=None):
 
     k2eV = K2eV[SW_Spherical.species]
 
-    PTensor = cal_pressure_tensor_Spherical(SW_Spherical, component)
+    PTensor = cal_pressure_tensor_Spherical(SW_Spherical, velocity_sign_convention=velocity_sign_convention, component=component)
     TTensor = PTensor / Density / k_B
 
     b_hat = B_field / np.linalg.norm(B_field)

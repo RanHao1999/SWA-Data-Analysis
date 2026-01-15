@@ -45,11 +45,10 @@ In the *main* function, set:
 Here, tstart should be the *timeslice* in GMM_Hao_Tutorial.ipynb + 4s. Make sure that the folder names match.
 
 ### Step 2.2 : Go to GMM_3components_parallelised.py
-**!!! This code is still under developing!!! Be Cautious to use it!!!**
 
-Use this if you are happy to sacrifice accuracy and want to increase the speed of calculating.
+Use this if you are happy to sacrifice a bit accuracy and want to increase the speed of calculating.
 
-  Concept:
+  Idea:
   To enable parallelisation while keeping temporal continuity, we process the time series in blocks (e.g. N = 15 slices ≈ 1 min at 4 s cadence).
   1. First timeslice is obtained via Hao_GMM_Tutorial.ipynb
   2. The next block of measurements, all use the results from Hao_GMM_Tutorial.ipynb as initial values.

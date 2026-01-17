@@ -43,7 +43,7 @@ In the *main* function, set:
 	tstart
 	tend
 
-Here, tstart should be the *timeslice* in GMM_Hao_Tutorial.ipynb + 4s. Make sure that the folder names match.
+Here, tstart should be the *timeslice* in GMM_Hao_Tutorial.ipynb. Make sure that the folder names match.
 
 ### Step 2.2 : Go to GMM_3components_parallelised.py
 

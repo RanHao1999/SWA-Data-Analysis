@@ -39,6 +39,7 @@ Run the code, it will save the results in a folder called (result/SO/yymmdd/hhmm
 ### Step 2.1 : Go to GMM_3components.py
 In the *main* function, set:
 
+	dt_seconds # resolution of PAS of the interval that you are studying
 	tstart
 	tend
 
@@ -57,6 +58,7 @@ Use this if you are happy to sacrifice a bit accuracy and want to increase the s
 
 Set:
 
+	  dt_seconds
 	  tstart
 	  tend
 	  block_length

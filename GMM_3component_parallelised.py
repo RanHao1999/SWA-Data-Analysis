@@ -754,7 +754,7 @@ def main():
     total_tstart = time.time()
 
     # Specify the resolution of PAS during your interval
-    # Usually 4.0 for early observations, and 2.0 for more recent observations.
+    # Usually 4.0 for early observations, and 2.0 or 1.0 for more recent observations.
     dt_seconds = 2.0
 
     # t start should be the the time of the initial separation.

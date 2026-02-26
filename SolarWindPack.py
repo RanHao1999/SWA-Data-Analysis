@@ -404,7 +404,7 @@ def cal_2D_moments(Particle_2D):
     # return: density, u_para, Tpara_eV, Tperp_eV
     mp = 1.67262192e-27 # kg
     e = 1.602176634e-19  # elementary charge in Coulombs
-    
+
     Vpara = Particle_2D.grid['Vpara']
     Vperp = Particle_2D.grid['Vperp']
     Vpara_grid, Vperp_grid = np.meshgrid(Vpara, Vperp)

@@ -356,14 +356,18 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     ])
 
     n_component = 3
-    f_full, dist_paras_full, probas_full = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'full', initial_means, n_component)
-    f_alpha_full, f_beam_full, f_core_full = f_full
-    f_diag, dist_paras_diag, probas_diag = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'diag', initial_means, n_component)
-    f_alpha_diag, f_beam_diag, f_core_diag = f_diag
-    f_spherical, dist_paras_spherical, probas_spherical = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'spherical', initial_means, n_component)
-    f_alpha_spherical, f_beam_spherical, f_core_spherical = f_spherical
-    f_tied, dist_paras_tied, probas_tied= cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'tied', initial_means, n_component)
-    f_alpha_tied, f_beam_tied, f_core_tied = f_tied
+    try:
+        f_full, dist_paras_full, probas_full = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'full', initial_means, n_component)
+        f_alpha_full, f_beam_full, f_core_full = f_full
+        f_diag, dist_paras_diag, probas_diag = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'diag', initial_means, n_component)
+        f_alpha_diag, f_beam_diag, f_core_diag = f_diag
+        f_spherical, dist_paras_spherical, probas_spherical = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'spherical', initial_means, n_component)
+        f_alpha_spherical, f_beam_spherical, f_core_spherical = f_spherical
+        f_tied, dist_paras_tied, probas_tied= cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'tied', initial_means, n_component)
+        f_alpha_tied, f_beam_tied, f_core_tied = f_tied
+    except Exception as e:
+        print("GMM failed with error: ", e)
+        return Protons_initial, Alphas_initial
 
     fig, ax = plt.subplots(2, 4, figsize=(20, 8))
     # Full 
@@ -482,6 +486,7 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         best_option = min(valid_options, key=lambda x: x[0])
 
     # Unpack the result
+    best_option = options[1]
     best_theta, which_one, Protons_current, Alphas_current, _= best_option
 
     #print(f"{which_one} is better.")
@@ -527,6 +532,9 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         Protons_current = Protons_initial
         Alphas_current = Alphas_initial
 
+    overlap = cal_overlap(Protons_current, Alphas_current)
+    print("Overlap between proton and alpha VDF: ", overlap)
+
     # Save the important parameter printed to a txt file.
     moments = {
         "Which one": which_one,
@@ -569,6 +577,7 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         "Alpha Temperature Anisotropy": TperpAlpha / TparaAlpha,
         "Tap_ratio": Tap_ratio,
         "Theta_Vdrift_B": best_theta, 
+        "Overlap": overlap
     }
 
     # Save the moments, why not.
@@ -588,13 +597,13 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
 def main():
     # Specify the resolution of PAS during your interval
     # Usually 4.0 for early observations, and 2.0 for more recent observations.
-    dt_seconds = 2.0
+    dt_seconds = 1.0
 
     # t start should be the the time of the initial separation.
     # Please match the folder name!
-    t_start = datetime(2024, 9, 25, 0, 0, 1)
+    t_start = datetime(2024, 10, 3, 15, 30, 0)
     hhmmss = t_start.strftime("%H%M%S")
-    t_end = datetime(2024, 9, 25, 0, 59, 59)
+    t_end = datetime(2024, 10, 3, 16, 30, 0)
     yymmdd = t_start.strftime('%Y%m%d')
     data_list = os.listdir(f'data/SO/{yymmdd}')
     

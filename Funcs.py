@@ -5,6 +5,7 @@ In this Python script, I will define all the functions that I will use in the ma
 """
 
 import os, sys
+import h5py
 import numpy as np
 import pandas as pd
 from scipy.signal import butter, filtfilt
@@ -15,6 +16,7 @@ import matplotlib.pyplot as plt
 #import plasmapy
 import math
 import pickle
+import h5py
 
 import scipy.constants as const
 import astropy.units as u
@@ -402,3 +404,47 @@ def angle_between_vectors(V1, V2):
     
     theta = np.arccos(cos_theta)
     return theta
+
+
+def read_moments_csv(filepath):
+    """
+    Read moments CSV file and return dataframe indexed by time.
+    
+    Parameters:
+    -----------
+    filepath : str
+        Path to the CSV file
+        
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with datetime index, queryable by time like moments.loc['2023-09-28 12:00:00']
+    """
+    df = pd.read_csv(filepath)
+    
+    # Parse the first column as datetime and set as index
+    df.index = pd.to_datetime(df.iloc[:, 0])
+    df.index.name = 'Time'  # Name the index 'Time'
+    df = df.drop(df.columns[0], axis=1)  # Drop the original datetime column if it's duplicated
+    
+    return df
+
+def load_vdf(filename, index, VDF_SHAPE=(9, 11, 96)):
+
+    with h5py.File(filename, "r") as f:
+        ptr = f["ptr"]
+        start = ptr[index]
+        end = ptr[index+1]
+
+        vdf = np.zeros(VDF_SHAPE, dtype=np.float32)
+
+        i = f["i"][start:end]
+        j = f["j"][start:end]
+        k = f["k"][start:end]
+        val = f["value"][start:end].astype(np.float32)
+
+        vdf[i, j, k] = val
+
+        time = pd.Timestamp(f["time"][index])
+
+    return time, vdf

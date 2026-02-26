@@ -153,7 +153,6 @@ def collect_all_idx_times(days, t_start, t_end, dt_seconds):
         idx_times = [item for item in idx_times if item[0] not in bad_set]
         print(len(idx_times), "indices left after filtering.")
 
-
         # Append to the grand list
         all_idx_times.extend(idx_times)
 
@@ -508,14 +507,20 @@ def all_process(idx_time, initial_means):
     #])
 
     n_component = 3
-    f_full, dist_paras_full, probas_full = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'full', initial_means, n_component)
-    f_alpha_full, f_beam_full, f_core_full = f_full
-    f_diag, dist_paras_diag, probas_diag= cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'diag', initial_means, n_component)
-    f_alpha_diag, f_beam_diag, f_core_diag = f_diag
-    f_spherical, dist_paras_spherical, probas_spherical = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'spherical', initial_means, n_component)
-    f_alpha_spherical, f_beam_spherical, f_core_spherical = f_spherical
-    f_tied, dist_paras_tied, probas_tied = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'tied', initial_means, n_component)
-    f_alpha_tied, f_beam_tied, f_core_tied = f_tied
+    # Make sure ne data error don't kill the whole pool!
+    try:
+        f_full, dist_paras_full, probas_full = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'full', initial_means, n_component)
+        f_alpha_full, f_beam_full, f_core_full = f_full
+        f_diag, dist_paras_diag, probas_diag= cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'diag', initial_means, n_component)
+        f_alpha_diag, f_beam_diag, f_core_diag = f_diag
+        f_spherical, dist_paras_spherical, probas_spherical = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'spherical', initial_means, n_component)
+        f_alpha_spherical, f_beam_spherical, f_core_spherical = f_spherical
+        f_tied, dist_paras_tied, probas_tied = cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, 'tied', initial_means, n_component)
+        f_alpha_tied, f_beam_tied, f_core_tied = f_tied
+    except Exception as e:
+        print(f"[SKIP] {tslice_vdf} GMM failed: {e}")
+        # THIS is key to keep block warm-start stable
+        return initial_means
 
     fig, ax = plt.subplots(2, 4, figsize=(20, 8))
     # Full 
@@ -526,7 +531,7 @@ def all_process(idx_time, initial_means):
     plot_one(ax[0, 2], ax[1, 2], vel, vdf_corrected, f_core_tied, f_beam_tied, f_alpha_tied, 'Tied')
     # spherical
     plot_one(ax[0, 3], ax[1, 3], vel, vdf_corrected, f_core_spherical, f_beam_spherical, f_alpha_spherical, 'Spherical')
-    # plt.savefig(result_path + '/GMM_all.png')
+    plt.savefig(result_path + '/GMM_all.png')
     plt.close() 
 
     # Carry on with diag, tied, and spherical.
@@ -635,6 +640,8 @@ def all_process(idx_time, initial_means):
         best_option = min(valid_options, key=lambda x: x[0])
 
     # Unpack the result
+    # For this short interval, keep it at spherical
+    # best_option = options[1]
     best_theta, which_one, Protons_current, Alphas_current, _ = best_option
 
     #print(f"{which_one} is better.")
@@ -681,6 +688,8 @@ def all_process(idx_time, initial_means):
     else:
         initial_means_next = get_initial_means_from_objects(Protons_current, Alphas_current)
 
+    Overlap = cal_overlap(Protons_current, Alphas_current)
+
     # Save the important parameter printed to a txt file.
     moments = {
         "Which one": which_one,
@@ -699,8 +708,6 @@ def all_process(idx_time, initial_means):
         "Npcore": Npcore / 1e6,
         "Npbeam": Npbeam / 1e6,
         "Nalpha": Nalpha / 1e6,
-        "Np": (Npcore + Npbeam) / 1e6,
-        "Nalpha_over_Np": Nalpha / (Npcore + Npbeam),
         "VpcorePara": VpcorePara / 1e3,
         "VpcorePerp": VpcorePerp / 1e3,
         "VpbeamPara": VpbeamPara / 1e3,
@@ -709,7 +716,6 @@ def all_process(idx_time, initial_means):
         "VprotonPerp": VprotonPerp / 1e3,
         "ValphaPara": ValphaPara / 1e3,
         "ValphaPerp": ValphaPerp / 1e3,
-        "Vap": np.linalg.norm(Vap) / 1e3,
         "VA": VA,
         "TparaPcore": TparaProtonCore,
         "TperpPcore": TperpProtonCore,
@@ -719,10 +725,8 @@ def all_process(idx_time, initial_means):
         "TperpProton": TperpProton,
         "TparaAlpha": TparaAlpha,
         "TperpAlpha": TperpAlpha,
-        "Temperature Anisotropy": TperpProton / TparaProton,
-        "Alpha Temperature Anisotropy": TperpAlpha / TparaAlpha,
-        "Tap_ratio": Tap_ratio,
         "Theta_Vdrift_B": best_theta, 
+        "Overlap": Overlap
     }
 
     # Save the moments, why not.
@@ -754,21 +758,21 @@ def main():
     total_tstart = time.time()
 
     # Specify the resolution of PAS during your interval
-    # Usually 4.0 for early observations, and 2.0 or 1.0 for more recent observations.
-    dt_seconds = 2.0
+    # Usually 4.0 for early observations, and 2.0 for more recent observations.
+    dt_seconds = 4.0
 
     # t start should be the the time of the initial separation.
-    t_start = datetime(2024, 9, 25, 0, 0, 1)
+    t_start = datetime(2023, 8, 23, 13, 0, 2)
     hhmmss_start = t_start.strftime("%H%M%S")
     yymmdd_start = t_start.strftime('%Y%m%d')
-    t_end = datetime(2024, 9, 25, 0, 59, 59)
+    t_end = datetime(2023, 8, 24, 23, 59, 59)
     
     # block length in seconds
-    block_length = 60  # in seconds
+    block_length = 120  # in seconds
     block_size = int(block_length // dt_seconds)  # since data is at 4s resolution
 
     # Number of parallel processes, for maximum efficiency, we recommend it to be able to be evenly divided by the block size.
-    n_processes = int(block_size // 2)  # Use half of the block size for processes. If you have enough CPU cores, you can increase this number.
+    n_processes = 30  # Use half of the block size for processes. If you have enough CPU cores, you can increase this number.
     
     # Initial Values
     Protons_initial = read_pickle(f'result/SO/{yymmdd_start}/Particles/Ions/{hhmmss_start}/Protons.pkl')

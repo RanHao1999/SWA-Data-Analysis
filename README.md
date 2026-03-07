@@ -87,4 +87,13 @@ Every step is carefully recorded, and the code is well documented.
 
 ---
 
+## How to Cite
+If you use this code or the GMM separation logic in your research, please cite both the software archive and the accompanying paper:
+
+### Software Citation
+> Ran, H. (2026). RanHao1999/SWA-Data-Analysis: v1.0.0 (v1.0.0). Zenodo. https://doi.org/10.5281/zenodo.18902395
+
+### Paper Citation
+> Ran, H., Verscharen, D., et al. (2026). [The Damping and Instability of Ion-acoustic Waves in the Solar Wind: Solar Orbiter Observations]. *The Astrophysical Journal*, (Under Review).
+
   

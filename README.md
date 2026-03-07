@@ -1,5 +1,11 @@
 # SWA-Data-Analysis
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18902395.svg)](https://doi.org/10.5281/zenodo.18902395)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/)
+
+# SWA-Data-Analysis
+
 Tools for analysing ion measurements from the **Solar Wind Analyzer Proton and Alpha-Particle Sensor (SWA/PAS)** instrument on **Solar Orbiter**.
 This repository implements a physics-informed **Gaussian Mixture Model (GMM)** pipeline for separating **proton core**, **proton beam**, and **alpha-particle** populations from 3D velocity distribution functions (VDFs), together with the code to generate a *collared* VDF based on the measurements.
 

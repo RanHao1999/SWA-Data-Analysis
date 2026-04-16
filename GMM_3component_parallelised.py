@@ -15,6 +15,28 @@ GMM setting:
    From the 2nd on, the GMM will use the result of the previous one as a new initial value.
 ========================================================================================================================
 
+========================================================================================================================
+-----------------------------------------------------------------------------
+Block-wise warm-start for parallel GMM fitting
+-----------------------------------------------------------------------------
+To enable parallelisation while keeping temporal continuity, we process the
+time series in blocks (e.g. N = 15 slices ≈ 1 min at 4 s cadence).
+
+   1. First block:
+        - Fit the first slice sequentially with a generic initial guess.
+        - Use its converged parameters as the common initial guess for all
+          other slices in the block, which are then fitted in parallel.
+
+   2. Subsequent blocks:
+        - Take the average GMM solution from the previous block.
+        - Use it as the initial guess for the entire new block.
+        - Fit all slices in the block in parallel.
+
+Thus, blocks depend sequentially on each other, but slices within each block
+ can be processed independently across multiple cores.
+ -----------------------------------------------------------------------------
+========================================================================================================================
+
 The results are stored in objects and saved.
 """
 
@@ -37,6 +59,7 @@ from scipy.signal import argrelextrema, savgol_filter
 import bisect
 import pickle
 import gc
+import concurrent.futures
 
 from Funcs import *
 from SolarWindPack import *
@@ -47,6 +70,118 @@ def FindIndexinInterval(tstart, tend, epoch):
         raise ValueError("tstart should be smaller than tend.")
     result = [[idx, epoch[idx]] for idx in range(len(epoch)) if tstart <= epoch[idx] <= tend]
     return result
+
+def find_irregular_times(tstart, tend, epoch_vdf, expected, tol=0.5):
+    """
+    Find indices (in original array) where the PAS timestamps within [tstart, tend]
+    repeat or are too close (< expected - tol).
+    
+    Only timestamps inside [tstart, tend] are considered,
+    so results match FindIndexinInterval.
+    """
+
+    if tstart > tend:
+        raise ValueError("tstart should be smaller than tend.")
+
+    bad_indices = []
+    bad_dts = []
+
+    # First collect all indices within the interval
+    idx_in_interval = [
+        i for i in range(len(epoch_vdf))
+        if tstart <= epoch_vdf[i] <= tend
+    ]
+
+    # Now look for repeated/too-close times strictly within this set
+    lower = expected - tol   # typically 3.1 s
+
+    for k in range(len(idx_in_interval) - 1):
+
+        i = idx_in_interval[k]
+        j = idx_in_interval[k+1]
+
+        dt = (epoch_vdf[j] - epoch_vdf[i]).total_seconds()
+
+        if dt < lower:
+            bad_indices.append(i)
+            bad_dts.append(dt)
+
+    return bad_indices, bad_dts
+
+def days_between(t_start, t_end):
+    day = t_start.date()
+    end = t_end.date()
+    return [(day := day + timedelta(days=1)) and (day - timedelta(days=1)).strftime("%Y%m%d")
+            for _ in range((end - day).days + 1)]
+
+def collect_all_idx_times(days, t_start, t_end, dt_seconds):
+    all_idx_times = []
+
+    for yymmdd in days:
+        print("\n=== Processing", yymmdd, "===")
+
+        # Load the day's PAS file
+        data_list = os.listdir(f"data/SO/{yymmdd}")
+        vdf_fname = next(file for file in data_list 
+                         if 'pas-vdf' in file and not file.startswith('._'))
+        vdf_cdffile = pycdf.CDF(f"data/SO/{yymmdd}/{vdf_fname}")
+        epoch_vdf = vdf_cdffile['Epoch'][...]
+
+        mag_fname = next(file for file in data_list
+                         if 'mag-srf' in file and not file.startswith('._'))
+        mag_cdffile = pycdf.CDF(f"data/SO/{yymmdd}/{mag_fname}")
+        epoch_mag = mag_cdffile['EPOCH'][...]
+
+        # Here, make sure t_start and t_end does not include data where MAG has no measurement!
+        t_start_thisday = max(t_start, epoch_mag[0])
+        t_end_thisday = min(t_end, epoch_mag[-1])
+
+        # Get today's indices
+        idx_times = FindIndexinInterval(t_start_thisday, t_end_thisday, epoch_vdf)
+        print(len(idx_times), "time indices found in total.")
+
+        # Find irregular times (using your function)
+        bad_idx, deltas = find_irregular_times(t_start_thisday, t_end_thisday, epoch_vdf, expected=dt_seconds)
+        print("Irregular intervals:", len(bad_idx))
+
+        # Optional: print details
+        for idx, dt in zip(bad_idx, deltas):
+            print(f"Index {idx}: dt = {dt:.3f} s  ({epoch_vdf[idx]} → {epoch_vdf[idx+1]})")
+
+        # Remove bad indices
+        bad_set = set(bad_idx)
+        idx_times = [item for item in idx_times if item[0] not in bad_set]
+        print(len(idx_times), "indices left after filtering.")
+
+        # Append to the grand list
+        all_idx_times.extend(idx_times)
+
+        vdf_cdffile.close()
+
+    return all_idx_times
+
+def resample_to_idx_time(idx_times, target_interval=4.0):
+    if not idx_times:
+        return []
+
+    # 1. Always keep the first element
+    resampled_list = [idx_times[0]]
+    last_kept_time = idx_times[0][1]
+
+    # 2. Iterate through the rest
+    for i in range(1, len(idx_times)):
+        current_idx, current_time = idx_times[i]
+        
+        # Calculate time difference
+        time_diff = (current_time - last_kept_time).total_seconds()
+        
+        # 3. If the gap is 4s or more, keep it
+        if time_diff >= target_interval:
+            resampled_list.append([current_idx, current_time])
+            last_kept_time = current_time
+
+    return resampled_list
+
 
 # Functions for plotting.
 def log10_vdf(vdf):
@@ -97,6 +232,7 @@ def plot_one(ax1, ax2, vel, vdf_total, f_core, f_beam, f_alpha, co_type):
     ax2.legend()
 
     return 0
+
 
 def cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, co_type, initial_means, n_component):
     # Function for calculating GMM.
@@ -180,6 +316,39 @@ def cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, co_type, initial_means, n_c
     return f_all_sorted, [means_sorted, covariance_sorted, weights_sorted], probas
 
 
+def get_initial_means_from_objects(Protons, Alphas):
+    magfield = Protons.magfield
+    (Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz) = fieldAlignedCoordinates(magfield[0], magfield[1], magfield[2])
+    # Get the initial values for GMM.
+    u_proton_core = cal_bulk_velocity_Spherical(Protons, component='core')
+    u_proton_core_Baligned = rotateVectorIntoFieldAligned(u_proton_core[0], u_proton_core[1], u_proton_core[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
+    u_proton_beam = cal_bulk_velocity_Spherical(Protons, component='beam')
+    u_proton_beam_Baligned = rotateVectorIntoFieldAligned(u_proton_beam[0], u_proton_beam[1], u_proton_beam[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
+    
+    # For alphas, we need to multiply the velocity by sqrt(2) to let GMM separate in the PAS reference.
+    u_alpha = cal_bulk_velocity_Spherical(Alphas) * np.sqrt(2)
+    u_alpha_Baligned = rotateVectorIntoFieldAligned(u_alpha[0], u_alpha[1], u_alpha[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
+
+    diff_beam_core = (np.array(u_proton_beam_Baligned) - np.array(u_proton_core_Baligned)) / 1e3
+    diff_alpha_core = (np.array(u_alpha_Baligned) - np.array(u_proton_core_Baligned)) / 1e3
+
+    # get VA
+    density_p = cal_density_Spherical(Protons) # m^-3
+    density_a = cal_density_Spherical(Alphas) # m^-3
+    B_magnitude = np.sqrt(np.sum(magfield**2)) * 1e-9  #T
+    mu0 = 4 * np.pi * 1e-7 # N/A^2
+    mp = 1.67*1e-27 # kg
+    ma = 4 * mp
+    VA = B_magnitude / np.sqrt(mu0 * (density_p * mp + mu0 * density_a * ma)) / 1000.0 #  km/s
+
+    initial_means = np.array([
+        [0, 0, 0, 0, Protons.get_vdf().max()], 
+        [VA, 0, 0, VA, Protons.get_vdf().max() / 10.0],
+        np.append(np.append(diff_alpha_core, np.linalg.norm(diff_alpha_core)), Alphas.get_vdf().max())
+    ])
+
+    return initial_means
+
 # Correct again. Remove the points who have no neighboring points.
 def remove_noise(vdf_corrected):
     """
@@ -214,24 +383,53 @@ def remove_noise(vdf_corrected):
     return cleaned_vdf
 
 
-def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdffile, mag_cdffile, one_particle_noise_level, result_path):
+def all_process(idx_time, initial_means):
     """
     A function with all the processes, with figures plotted.
     """
     tsliceindex_vdf = idx_time[0]
     tslice_vdf = idx_time[1]
 
+    yymmdd = tslice_vdf.strftime('%Y%m%d')
+    hhmmss = tslice_vdf.strftime('%H%M%S')
+    result_path = f'result/SO/{yymmdd}/Particles/Ions/{hhmmss}'
+    if not os.path.exists(result_path):
+        os.makedirs(result_path)
+
+    data_list = os.listdir(f'data/SO/{yymmdd}')
+    
+    # Load the data, change your path here. Please correspond to the time you set.
+    vdf_fname = next(file for file in data_list if 'pas-vdf' in file and not file.startswith('._'))
+    grnd_fname = next(file for file in data_list if 'pas-grnd-mom' in file and not file.startswith('._'))
+    mag_fname = next(file for file in data_list if 'mag-srf-normal' in file and not file.startswith('._'))
+
+    vdf_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{vdf_fname}')
+    grnd_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{grnd_fname}')
+    mag_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{mag_fname}')
+
+    # Calculate the one-particle noise level.
+    # one_particle_noise_level = OneParticleNoiseLevel(count_cdffile, vdf_cdffile)
+    loaded_data = np.load(f'result/SO/{yymmdd}/one_particle_noise_level.npz')
+    one_particle_noise_level = loaded_data['noise_level']
+
     # Get all the initial values.
     epoch_vdf = vdf_cdffile['Epoch'][...]
     epoch_mag = mag_cdffile['EPOCH'][...]
 
     # The magnetic field is obtained by calculating the average of the 1-second magnetic field data around the time slice.
-    tslice_vdf_start = epoch_vdf[tsliceindex_vdf] - timedelta(seconds=0.5)
-    tslice_vdf_end = epoch_vdf[tsliceindex_vdf] + timedelta(seconds=0.5)
-    tsliceindex_mag_start = bisect.bisect_left(epoch_mag, tslice_vdf_start)
-    tsliceindex_mag_end = bisect.bisect_left(epoch_mag, tslice_vdf_end)
-    print('Time for MAG: ', epoch_mag[tsliceindex_mag_start], " to ", epoch_mag[tsliceindex_mag_end])
-    print("Time index for MAG: ", tsliceindex_mag_start, " to ", tsliceindex_mag_end)
+    try:
+        tslice_vdf_start = epoch_vdf[tsliceindex_vdf] - timedelta(seconds=0.5)
+        tslice_vdf_end = epoch_vdf[tsliceindex_vdf] + timedelta(seconds=0.5)
+        tsliceindex_mag_start = bisect.bisect_left(epoch_mag, tslice_vdf_start)
+        tsliceindex_mag_end = bisect.bisect_left(epoch_mag, tslice_vdf_end)
+        print('Time for MAG: ', epoch_mag[tsliceindex_mag_start], " to ", epoch_mag[tsliceindex_mag_end])
+        print("Time index for MAG: ", tsliceindex_mag_start, " to ", tsliceindex_mag_end)
+        magF_SRF = mag_cdffile['B_SRF'][tsliceindex_mag_start:tsliceindex_mag_end].mean(axis=0)
+    except Exception as e:
+        # In the cases where, the code goes from one day to the next, it a bit tricky to concatenate the two days' mag data.
+        # So, in this case, we just take the closest mag data point.
+        epoch_mag = bisect.bisect_left(epoch_mag, epoch_vdf[tsliceindex_vdf])
+        magF_SRF = mag_cdffile['B_SRF'][epoch_mag - 1]
 
     # Read data from SO product.
     V_bulk_SRF = grnd_cdffile['V_SRF'][tsliceindex_vdf]
@@ -244,8 +442,6 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     theta = vdf_cdffile['Elevation'][...] * u.deg # in deg
     phi = vdf_cdffile['Azimuth'][...] * u.deg # in deg
 
-    magF_SRF = mag_cdffile['B_SRF'][tsliceindex_mag_start:tsliceindex_mag_end].mean(axis=0)
-
     # Calculate the local Alfven speed to set initial means.
     B_magnitude = np.sqrt(np.sum(magF_SRF**2)) * 1e-9  #T
     density = grnd_cdffile['N'][tsliceindex_vdf] * 1e6 # m^-3
@@ -253,10 +449,15 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     mp = 1.67*1e-27 # kg
     VA = B_magnitude / np.sqrt(mu0 * density * mp) / 1000.0 #  km/s
 
-    # Remove the isolated points who have no neighboring points, which are likely to be noise.
+    # Close the cdf files to save memory.
+    vdf_cdffile.close()
+    grnd_cdffile.close()
+    mag_cdffile.close()
+
+    # Any anode with measurement below the noise level is considered as noise, and removed.
+    # Let's try not removing an interval first.
     vdf_corrected = vdf.copy()
     vdf_corrected = remove_noise(vdf_corrected)
-
     print("Before removing isolated points: ", np.count_nonzero(vdf))
     print("After removing isolated points: ", np.count_nonzero(vdf_corrected))
 
@@ -297,10 +498,10 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         ax.annotate(str(np.where(mask)[0][idx]), (xi, yi), textcoords="offset points", xytext=(0, 5), ha='center', fontsize=8)
     ax.set_xlabel('Vel [km/s]')
     ax.set_ylabel('log10(VDF)')
-    plt.savefig(result_path + '/Corrected_VDF_1D.png')
+    # plt.savefig(result_path + '/Corrected_VDF_1D.png')
     plt.close()
 
-    # Choose if you want to remove the one-particle noise before GMM. 
+    # Choose if you want to remove the one-particle noise level.
     vdf_2ndcorrected = vdf_corrected.copy()
     #vdf_2ndcorrected[vdf_2ndcorrected <= one_particle_noise_level] = 0
 
@@ -308,7 +509,7 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     print("After removing one-particel noise: ", np.count_nonzero(vdf_2ndcorrected))
 
     # Plot to see the 1D vdf.
-    y = log10_vdf(np.sum(vdf_2ndcorrected, axis=(0, 1)))
+    y = log10_vdf(np.sum(vdf_corrected, axis=(0, 1)))
     mask = y != 0
     x = vel[mask]
     y = y[mask]
@@ -321,30 +522,11 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         ax.annotate(str(np.where(mask)[0][idx]), (xi, yi), textcoords="offset points", xytext=(0, 5), ha='center', fontsize=8)
     ax.set_xlabel('Vel [km/s]')
     ax.set_ylabel('log10(VDF)')
-    plt.savefig(result_path + '/Corrected_VDF_Cleaned.png')
+    # plt.savefig(result_path + '/Corrected_VDF_Cleaned.png')
     plt.close()
 
-    # Get the dividing index bease on the previous vdfs.
-    Pvdf_sum = np.sum(Protons_initial.get_vdf(), axis=(0, 1))
-    Avdf_sum = np.sum(Alphas_initial.get_vdf(), axis=(0, 1))
 
-    for i in range(len(Pvdf_sum)):
-        if Avdf_sum[i] < Pvdf_sum[i]:
-            dividing_idx = i
-            break
 
-    # Get the initial values for GMM.
-    u_proton_core = cal_bulk_velocity_Spherical(Protons_initial, component='core')
-    u_proton_core_Baligned = rotateVectorIntoFieldAligned(u_proton_core[0], u_proton_core[1], u_proton_core[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
-    u_proton_beam = cal_bulk_velocity_Spherical(Protons_initial, component='beam')
-    u_proton_beam_Baligned = rotateVectorIntoFieldAligned(u_proton_beam[0], u_proton_beam[1], u_proton_beam[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
-    
-    # For alphas, we need to multiply the velocity by sqrt(2) to let GMM separate in the PAS reference.
-    u_alpha = cal_bulk_velocity_Spherical(Alphas_initial) * np.sqrt(2)
-    u_alpha_Baligned = rotateVectorIntoFieldAligned(u_alpha[0], u_alpha[1], u_alpha[2], Nx, Ny, Nz, Px, Py, Pz, Qx, Qy, Qz)
-
-    diff_beam_core = (np.array(u_proton_beam_Baligned) - np.array(u_proton_core_Baligned)) / 1e3
-    diff_alpha_core = (np.array(u_alpha_Baligned) - np.array(u_proton_core_Baligned)) / 1e3
 
     # Initial means
     # Here are two choices, if the beam is really not separate enough, I strongly suggest to use VA as initial input for beam.
@@ -354,25 +536,21 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     #    np.append(np.append(diff_alpha_core, np.linalg.norm(diff_alpha_core)), Alphas_initial.get_vdf().max())
     #])
 
-    initial_means = np.array([
-        [0, 0, 0, 0, Protons_initial.get_vdf().max()], 
-        [VA, 0, 0, VA, Protons_initial.get_vdf().max() / 10.0],
-        np.append(np.append(diff_alpha_core, np.linalg.norm(diff_alpha_core)), Alphas_initial.get_vdf().max())
-    ])
-
     n_component = 3
+    # Make sure ne data error don't kill the whole pool!
     try:
         f_full, dist_paras_full, probas_full = cal_GMM(V_para, V_perp1, V_perp2, vdf_2ndcorrected, 'full', initial_means, n_component)
         f_alpha_full, f_beam_full, f_core_full = f_full
-        f_diag, dist_paras_diag, probas_diag = cal_GMM(V_para, V_perp1, V_perp2, vdf_2ndcorrected, 'diag', initial_means, n_component)
+        f_diag, dist_paras_diag, probas_diag= cal_GMM(V_para, V_perp1, V_perp2, vdf_2ndcorrected, 'diag', initial_means, n_component)
         f_alpha_diag, f_beam_diag, f_core_diag = f_diag
         f_spherical, dist_paras_spherical, probas_spherical = cal_GMM(V_para, V_perp1, V_perp2, vdf_2ndcorrected, 'spherical', initial_means, n_component)
         f_alpha_spherical, f_beam_spherical, f_core_spherical = f_spherical
-        f_tied, dist_paras_tied, probas_tied= cal_GMM(V_para, V_perp1, V_perp2, vdf_2ndcorrected, 'tied', initial_means, n_component)
+        f_tied, dist_paras_tied, probas_tied = cal_GMM(V_para, V_perp1, V_perp2, vdf_2ndcorrected, 'tied', initial_means, n_component)
         f_alpha_tied, f_beam_tied, f_core_tied = f_tied
     except Exception as e:
-        print("GMM failed with error: ", e)
-        return Protons_initial, Alphas_initial
+        print(f"[SKIP] {tslice_vdf} GMM failed: {e}")
+        # THIS is key to keep block warm-start stable
+        return initial_means
 
     fig, ax = plt.subplots(2, 4, figsize=(20, 8))
     # Full 
@@ -404,6 +582,7 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     Protons_tied.set_vdf(f_beam_tied, component='beam')
     Alphas_tied = SolarWindParticle('alpha', time=tslice_vdf, magfield=magF_SRF, grid=[theta.value, phi.value, vel.value * 1e3 / np.sqrt(2)], coord_type='Spherical')
     Alphas_tied.set_vdf(f_alpha_tied * 4)
+
 
     # Print the moments to see what the results look like.
     Vpcore_diag = cal_bulk_velocity_Spherical(Protons_diag, 'core') / 1e3
@@ -491,8 +670,9 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         best_option = min(valid_options, key=lambda x: x[0])
 
     # Unpack the result
-    best_option = options[1]
-    best_theta, which_one, Protons_current, Alphas_current, _= best_option
+    # For this short interval, keep it at spherical
+    # best_option = options[1]
+    best_theta, which_one, Protons_current, Alphas_current, _ = best_option
 
     #print(f"{which_one} is better.")
 
@@ -501,7 +681,7 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
     plt.savefig(result_path + '/Final_Result.png')
     plt.close()
 
-    # Moments.
+    # Calculate Moments, and asve them.
     # Density.
     Npcore = cal_density_Spherical(Protons_current, component='core')
     Npbeam = cal_density_Spherical(Protons_current, component='beam')
@@ -533,12 +713,12 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
 
     # If the separation fails, in order to avoid the failure of the next separation, we use the previous separation as the initial value and return it to the next separation.
     if np.abs(best_theta) > 40:
-        print("Separation failed, use the previous separation.")
-        Protons_current = Protons_initial
-        Alphas_current = Alphas_initial
+        print(f'Separation failed for {tslice_vdf}, use previous initial means for next time slice.')
+        initial_means_next = initial_means
+    else:
+        initial_means_next = get_initial_means_from_objects(Protons_current, Alphas_current)
 
-    overlap = cal_overlap(Protons_current, Alphas_current)
-    print("Overlap between proton and alpha VDF: ", overlap)
+    Overlap_alpha_ref, Overlap_proton_ref = cal_overlap(Protons_current, Alphas_current)
 
     # Save the important parameter printed to a txt file.
     moments = {
@@ -558,8 +738,6 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         "Npcore": Npcore / 1e6,
         "Npbeam": Npbeam / 1e6,
         "Nalpha": Nalpha / 1e6,
-        "Np": (Npcore + Npbeam) / 1e6,
-        "Nalpha_over_Np": Nalpha / (Npcore + Npbeam),
         "VpcorePara": VpcorePara / 1e3,
         "VpcorePerp": VpcorePerp / 1e3,
         "VpbeamPara": VpbeamPara / 1e3,
@@ -568,7 +746,6 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         "VprotonPerp": VprotonPerp / 1e3,
         "ValphaPara": ValphaPara / 1e3,
         "ValphaPerp": ValphaPerp / 1e3,
-        "Vap": np.linalg.norm(Vap) / 1e3,
         "VA": VA,
         "TparaPcore": TparaProtonCore,
         "TperpPcore": TperpProtonCore,
@@ -578,11 +755,9 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
         "TperpProton": TperpProton,
         "TparaAlpha": TparaAlpha,
         "TperpAlpha": TperpAlpha,
-        "Temperature Anisotropy": TperpProton / TparaProton,
-        "Alpha Temperature Anisotropy": TperpAlpha / TparaAlpha,
-        "Tap_ratio": Tap_ratio,
         "Theta_Vdrift_B": best_theta, 
-        "Overlap": overlap
+        "Overlap_proton_ref": Overlap_proton_ref,
+        "Overlap_alpha_ref": Overlap_alpha_ref,
     }
 
     # Save the moments, why not.
@@ -596,63 +771,83 @@ def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdf
 
     gc.collect()
 
-    return Protons_current, Alphas_current
+    return initial_means_next
 
+def parallelised_all_process(idx_time_list, initial_means, n_processes):
+    """
+    A parallelised version of all_process function.
+    """
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=n_processes) as executor:
+      futures = [executor.submit(all_process, idx, initial_means) for idx in idx_time_list]
+      results = [f.result() for f in futures]
+    avg = np.mean(np.stack(results, axis=0), axis=0)
+
+    return avg  # return avg for the next initial means.
 
 def main():
+    total_tstart = time.time()
+
     # Specify the resolution of PAS during your interval
-    # Usually 4.0 for early observations, and 2.0 for more recent observations.
+    # The time resolution of measurement, this is needed for checking if there is irregular data gap.
     dt_seconds = 1.0
+    # The time resolution that you want to use, please make sure it is multiple of the actual dataresolution.
+    dt_wanted = 4.0
 
     # t start should be the the time of the initial separation.
-    # Please match the folder name!
-    t_start = datetime(2024, 7, 17, 12, 0, 0)
-    hhmmss = t_start.strftime("%H%M%S")
-    t_end = datetime(2024, 7, 30, 23, 59, 59)
-    yymmdd = t_start.strftime('%Y%m%d')
-    data_list = os.listdir(f'data/SO/{yymmdd}')
-    
-    # Load the data, change your path here. Please correspond to the time you set.
-    vdf_fname = next(file for file in data_list if 'pas-vdf' in file and not file.startswith('._'))
-    grnd_fname = next(file for file in data_list if 'pas-grnd-mom' in file and not file.startswith('._'))
-    mag_fname = next(file for file in data_list if 'mag-srf-normal' in file and not file.startswith('._'))
-    #eflux_fname = next(file for file in data_list if 'pas-eflux' in file and not file.startswith('._'))
-    count_fname = next(file for file in data_list if 'pas-3d' in file and not file.startswith('._'))
+    t_start = datetime(2024, 8, 31, 0, 0, 0)
+    hhmmss_start = t_start.strftime("%H%M%S")
+    yymmdd_start = t_start.strftime('%Y%m%d')
+    t_end = datetime(2024, 9, 15, 23, 59, 59)
 
-    vdf_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{vdf_fname}')
-    grnd_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{grnd_fname}')
-    mag_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{mag_fname}')
-    #eflux_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{eflux_fname}')
-    count_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{count_fname}')
+    # block length in seconds
+    block_length = 160  # in seconds
+    block_size = int(block_length // dt_wanted)  # since data is at 4s resolution
     
-    # Calculate the one-particle noise level.
-    # one_particle_noise_level = OneParticleNoiseLevel(count_cdffile, vdf_cdffile)
-    loaded_data = np.load(f'result/SO/{yymmdd}/one_particle_noise_level.npz')
-    one_particle_noise_level = loaded_data['noise_level']
-
+    # Number of parallel processes, for maximum efficiency, we recommend it to be able to be evenly divided by the block size.
+    n_processes = 40  # Use half of the block size for processes. If you have enough CPU cores, you can increase this number.
+    
     # Initial Values
-    Protons_initial = read_pickle(f'result/SO/{yymmdd}/Particles/Ions/{hhmmss}/Protons.pkl')
-    Alphas_initial = read_pickle(f'result/SO/{yymmdd}/Particles/Ions/{hhmmss}/Alphas.pkl')
-    
-    # From the time range, we can find the indices of the data.
-    t_start = t_start + timedelta(seconds=dt_seconds)
-    epoch_vdf = vdf_cdffile['Epoch'][...]
-    idx_times = FindIndexinInterval(t_start, t_end, epoch_vdf)
+    Protons_initial = read_pickle(f'result/SO/{yymmdd_start}/Particles/Ions/{hhmmss_start}/Protons.pkl')
+    Alphas_initial = read_pickle(f'result/SO/{yymmdd_start}/Particles/Ions/{hhmmss_start}/Alphas.pkl')
+    initial_means = get_initial_means_from_objects(Protons_initial, Alphas_initial)
 
-    for idx_time in idx_times:
-        tslice = idx_time[1]
-        yyyymmdd = tslice.strftime("%Y%m%d")
-        hhmmss = tslice.strftime("%H%M%S")
-        result_path = 'result/SO/' + yyyymmdd + '/Particles/Ions/' + hhmmss
-        if not os.path.exists(result_path):
-            os.makedirs(result_path)
-        try: 
-            Protons_initial, Alphas_initial = all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdffile, mag_cdffile, one_particle_noise_level, result_path)
-            # time.sleep()   # sleep for 2 seconds to avoid the laptop to overheat.
-        except Exception as e:
-            print(f'Error at {tslice}:, {e}')
-            continue
-    
+    t_start = t_start + timedelta(seconds=dt_seconds)  # Move to the next time slice for processing.
+    yymmdd_lst = days_between(t_start, t_end)
+    idx_times = collect_all_idx_times(yymmdd_lst, t_start, t_end, dt_seconds)
+
+    # Keep the 'wanted' time resolution
+    filtered_idx_times = resample_to_idx_time(idx_times, target_interval=dt_wanted)
+
+    # Calculate the one-particle noises for each day in advance.
+    for yymmdd in yymmdd_lst:
+        if os.path.exists(f'result/SO/{yymmdd}/one_particle_noise_level.npz'):
+            print(f'One-particle noise level for {yymmdd} already exists, skip calculation.')
+        else:
+            print(f'Calculating one-particle noise level for {yymmdd}...')
+            data_list = os.listdir(f'data/SO/{yymmdd}')
+            vdf_fname = next(file for file in data_list if 'pas-vdf' in file and not file.startswith('._'))
+            count_fname = next(file for file in data_list if 'pas-3d' in file and not file.startswith('._'))
+            vdf_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{vdf_fname}')
+            count_cdffile = pycdf.CDF(f'data/SO/{yymmdd}/{count_fname}')
+            if os.path.exists(f'result/SO/{yymmdd}') is False:
+                os.makedirs(f'result/SO/{yymmdd}')
+            one_particle_noise_level = OneParticleNoiseLevel(count_cdffile, vdf_cdffile)
+            np.savez(f'result/SO/{yymmdd}/one_particle_noise_level.npz', noise_level=one_particle_noise_level)
+            vdf_cdffile.close()
+            count_cdffile.close()
+
+    # Parallelised processing.
+    for i in range(0, len(filtered_idx_times), block_size):
+        idx_time_list = filtered_idx_times[i:i + block_size]
+        if not idx_time_list:
+            continue  # Skip if the list is empty
+        initial_means = parallelised_all_process(
+            idx_time_list, initial_means=initial_means,  n_processes=n_processes)
+
+    total_tend = time.time()
+    print(f'Total time used: {total_tend - total_tstart} seconds')
+
     return 0
 
 if __name__ == "__main__":

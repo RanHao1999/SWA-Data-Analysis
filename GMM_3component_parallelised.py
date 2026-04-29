@@ -349,39 +349,48 @@ def get_initial_means_from_objects(Protons, Alphas):
 
     return initial_means
 
-# Correct again. Remove the points who have no neighboring points.
-def remove_noise(vdf_corrected):
+def remove_noise(vdf_corrected, min_cluster_size=5, connectivity=1, positive_threshold=0.0):
     """
-    Set to zero any point in vdf_corrected (shape: 11, 9, 96)
-    that does not have at least one neighbor with a positive value.
-    
-    Parameters:
-        vdf_corrected (ndarray): 3D array of shape (11, 9, 96)
-    
-    Returns:
-        ndarray: Cleaned array with noise points set to zero
+    Remove disconnected positive-VDF clusters smaller than `min_cluster_size`.
+
+    Parameters
+    ----------
+    vdf_corrected : ndarray
+        3D VDF array, e.g. shape (11, 9, 96).
+    min_cluster_size : int
+        Minimum number of connected positive voxels needed to keep a cluster.
+    connectivity : int
+        1 -> 6-neighbour, 2 -> 18-neighbour, 3 -> 26-neighbour.
+    positive_threshold : float
+        Values <= this threshold are treated as zero/no measurement.
+
+    Returns
+    -------
+    ndarray
+        Cleaned VDF array.
     """
-    # Initialize a mask of False
-    neighbor_mask = np.zeros_like(vdf_corrected, dtype=bool)
+    positive_mask = np.isfinite(vdf_corrected) & (vdf_corrected > positive_threshold)
 
-    # Axis 0 neighbors
-    neighbor_mask[:-1, :, :] |= vdf_corrected[1:, :, :] > 0
-    neighbor_mask[1:, :, :] |= vdf_corrected[:-1, :, :] > 0
+    if not np.any(positive_mask):
+        return vdf_corrected.copy()
 
-    # Axis 1 neighbors
-    neighbor_mask[:, :-1, :] |= vdf_corrected[:, 1:, :] > 0
-    neighbor_mask[:, 1:, :] |= vdf_corrected[:, :-1, :] > 0
+    structure = scipy.ndimage.generate_binary_structure(rank=3, connectivity=connectivity)
+    labels, num_labels = scipy.ndimage.label(positive_mask, structure=structure)
 
-    # Axis 2 neighbors
-    neighbor_mask[:, :, :-1] |= vdf_corrected[:, :, 1:] > 0
-    neighbor_mask[:, :, 1:] |= vdf_corrected[:, :, :-1] > 0
+    if num_labels == 0:
+        return vdf_corrected.copy()
 
-    # Zero out points with no positive neighbor
+    label_sizes = np.bincount(labels.ravel(), minlength=num_labels + 1)
+
+    keep_label = np.zeros(num_labels + 1, dtype=bool)
+    keep_label[1:] = label_sizes[1:] >= min_cluster_size
+
+    keep_mask = keep_label[labels]
+
     cleaned_vdf = vdf_corrected.copy()
-    cleaned_vdf[~neighbor_mask] = 0
+    cleaned_vdf[~keep_mask] = 0
 
     return cleaned_vdf
-
 
 def all_process(idx_time, initial_means):
     """
@@ -795,17 +804,17 @@ def main():
     dt_wanted = 4.0
 
     # t start should be the the time of the initial separation.
-    t_start = datetime(2024, 8, 31, 0, 0, 0)
+    t_start = datetime(2024, 10, 1, 0, 0, 0)
     hhmmss_start = t_start.strftime("%H%M%S")
     yymmdd_start = t_start.strftime('%Y%m%d')
-    t_end = datetime(2024, 9, 15, 23, 59, 59)
+    t_end = datetime(2024, 10, 15, 23, 59, 59)
 
     # block length in seconds
-    block_length = 160  # in seconds
+    block_length = 120  # in seconds
     block_size = int(block_length // dt_wanted)  # since data is at 4s resolution
     
     # Number of parallel processes, for maximum efficiency, we recommend it to be able to be evenly divided by the block size.
-    n_processes = 40  # Use half of the block size for processes. If you have enough CPU cores, you can increase this number.
+    n_processes = 30  # Use half of the block size for processes. If you have enough CPU cores, you can increase this number.
     
     # Initial Values
     Protons_initial = read_pickle(f'result/SO/{yymmdd_start}/Particles/Ions/{hhmmss_start}/Protons.pkl')

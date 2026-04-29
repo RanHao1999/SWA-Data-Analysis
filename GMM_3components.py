@@ -180,39 +180,47 @@ def cal_GMM(V_para, V_perp1, V_perp2, vdf_corrected, co_type, initial_means, n_c
     return f_all_sorted, [means_sorted, covariance_sorted, weights_sorted], probas
 
 
-# Correct again. Remove the points who have no neighboring points.
-def remove_noise(vdf_corrected):
+def remove_noise(vdf_corrected, min_cluster_size=5, connectivity=1, positive_threshold=0.0):
     """
-    Set to zero any point in vdf_corrected (shape: 11, 9, 96)
-    that does not have at least one neighbor with a positive value.
-    
-    Parameters:
-        vdf_corrected (ndarray): 3D array of shape (11, 9, 96)
-    
-    Returns:
-        ndarray: Cleaned array with noise points set to zero
+    Remove disconnected positive-VDF clusters smaller than `min_cluster_size`.
+
+    Parameters
+    ----------
+    vdf_corrected : ndarray
+        3D VDF array, e.g. shape (11, 9, 96).
+    min_cluster_size : int
+        Minimum number of connected positive voxels needed to keep a cluster.
+    connectivity : int
+        1 -> 6-neighbour, 2 -> 18-neighbour, 3 -> 26-neighbour.
+    positive_threshold : float
+        Values <= this threshold are treated as zero/no measurement.
+    Returns
+    -------
+    ndarray
+        Cleaned VDF array.
     """
-    # Initialize a mask of False
-    neighbor_mask = np.zeros_like(vdf_corrected, dtype=bool)
+    positive_mask = np.isfinite(vdf_corrected) & (vdf_corrected > positive_threshold)
 
-    # Axis 0 neighbors
-    neighbor_mask[:-1, :, :] |= vdf_corrected[1:, :, :] > 0
-    neighbor_mask[1:, :, :] |= vdf_corrected[:-1, :, :] > 0
+    if not np.any(positive_mask):
+        return vdf_corrected.copy()
 
-    # Axis 1 neighbors
-    neighbor_mask[:, :-1, :] |= vdf_corrected[:, 1:, :] > 0
-    neighbor_mask[:, 1:, :] |= vdf_corrected[:, :-1, :] > 0
+    structure = scipy.ndimage.generate_binary_structure(rank=3, connectivity=connectivity)
+    labels, num_labels = scipy.ndimage.label(positive_mask, structure=structure)
 
-    # Axis 2 neighbors
-    neighbor_mask[:, :, :-1] |= vdf_corrected[:, :, 1:] > 0
-    neighbor_mask[:, :, 1:] |= vdf_corrected[:, :, :-1] > 0
+    if num_labels == 0:
+        return vdf_corrected.copy()
 
-    # Zero out points with no positive neighbor
+    label_sizes = np.bincount(labels.ravel(), minlength=num_labels + 1)
+
+    keep_label = np.zeros(num_labels + 1, dtype=bool)
+    keep_label[1:] = label_sizes[1:] >= min_cluster_size
+
+    keep_mask = keep_label[labels]
+
     cleaned_vdf = vdf_corrected.copy()
-    cleaned_vdf[~neighbor_mask] = 0
+    cleaned_vdf[~keep_mask] = 0
 
     return cleaned_vdf
-
 
 def all_process(idx_time, Protons_initial, Alphas_initial, vdf_cdffile, grnd_cdffile, mag_cdffile, one_particle_noise_level, result_path):
     """

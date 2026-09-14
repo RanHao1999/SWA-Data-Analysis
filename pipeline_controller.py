@@ -9,8 +9,8 @@ as independent subprocesses.  Data passes between steps via the filesystem
 Workflow per day:
   1. Download SOAR data      (sunpy_soar_download.py)
   2. GMM auto-parallelised    (gmm_auto_parallelised.py)
-  3. Save sparse VDFs to HDF5 (Save_vdfs.py)
-  4. Delete raw + intermediate (Delete_files.py)
+  3. Save sparse VDFs to HDF5 (Save_vdfs.py)          — always runs
+  4. Delete raw + intermediate (Delete_files.py)      — only if _DELETE=True
 
 Usage:
     conda activate research_env
@@ -246,12 +246,12 @@ def main():
     # =====================================================================
     # USER SETTINGS — edit these
     # =====================================================================
-    PIPELINE_TSTART = datetime(2024, 7, 17, 12, 0, 0)
-    PIPELINE_TEND   = datetime(2024, 8, 7, 23, 59, 59)
+    PIPELINE_TSTART = datetime(2023, 10, 8, 0, 0, 0)
+    PIPELINE_TEND   = datetime(2023, 10, 8, 23, 59, 0)
 
     DT_WANTED   = 4.0   # desired output cadence (s)
     N_PROCESSES = 20    # parallel workers for GMM fitting
-    _DELETE     = True  # False → keep raw data & intermediate products (skip cleanup)
+    _DELETE     = False  # False → skip cleanup, keep raw data & intermediates (VDFs always saved)
     # =====================================================================
 
     days = days_between(PIPELINE_TSTART, PIPELINE_TEND)
@@ -361,15 +361,15 @@ def main():
             continue
 
         # --------------------------------------------------------------
-        # Save VDFs + cleanup (skip if _DELETE=False)
+        # Save VDFs (always) + cleanup (only if _DELETE=True)
         # --------------------------------------------------------------
-        if _DELETE:
-            run_script(
-                "Save_vdfs.py",
-                f"save VDFs {day}",
-                DAY=day,
-            )
+        run_script(
+            "Save_vdfs.py",
+            f"save VDFs {day}",
+            DAY=day,
+        )
 
+        if _DELETE:
             run_script(
                 "Delete_files.py",
                 f"cleanup {day}",

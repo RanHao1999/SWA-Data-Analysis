@@ -34,8 +34,23 @@ from SolarWindPack import *
 from Constrain_Funcs import *
 
 # Constant things
-Proton_example = read_pickle('Miscellany/Protons.pkl')
-Alpha_example = read_pickle('Miscellany/Alphas.pkl')
+def _load_example_particles():
+    """Load the first paired proton and alpha particles found under result/SO."""
+    for root, dirs, files in os.walk('result/SO'):
+        dirs.sort()
+        files.sort()
+        if 'Protons.pkl' in files and 'Alphas.pkl' in files:
+            proton_file = os.path.join(root, 'Protons.pkl')
+            alpha_file = os.path.join(root, 'Alphas.pkl')
+            return read_pickle(proton_file), read_pickle(alpha_file)
+
+    raise FileNotFoundError(
+        "Could not find a directory under 'result/SO' containing both "
+        "Protons.pkl and Alphas.pkl."
+    )
+
+
+Proton_example, Alpha_example = _load_example_particles()
 
 vel_proton = Proton_example.grid['velocity']
 vel_alpha = Alpha_example.grid['velocity']
@@ -114,21 +129,45 @@ def _write_moments(moment_file, moments_by_key):
     moments_frame.to_csv(moment_file, index=True, date_format='%Y-%m-%d %H:%M:%S')
 
 
+def _find_mag_file(date_str):
+    """Return the path of an existing MAG CDF for *date_str*, or None.
+
+    Two locations are searched, because where the file lives depends on
+    whether the pipeline ran with _DELETE=True:
+
+      * ``data/SO/MAG/``     — where a previous run downloaded it to
+      * ``data/SO/{date}/``  — where sunpy_soar_download.py puts it, still
+                               present when _DELETE=False skips cleanup
+
+    Matching is done on the filename substring rather than an exact name:
+    SOAR ships ``solo_L2_mag-srf-normal_{date}_V01.cdf`` (uppercase L2/V01).
+    """
+    for directory in ('data/SO/MAG', os.path.join('data/SO', date_str)):
+        if not os.path.isdir(directory):
+            continue
+        for fname in sorted(os.listdir(directory)):
+            if fname.startswith('._') or not fname.endswith('.cdf'):
+                continue
+            if 'mag-srf-normal' in fname and date_str in fname:
+                return os.path.join(directory, fname)
+    return None
+
+
 def ensure_mag_file(date_str):
     """
-    Ensure MAG file exists for the given date. If it doesn't exist in data/SO/MAG/,
-    download it from SOAR.
-    
+    Ensure MAG file exists for the given date. If it doesn't exist in either
+    data/SO/MAG/ or data/SO/{date}/, download it from SOAR.
+
     Parameters
     ----------
     date_str : str
         Date string in format 'YYYYMMDD'
-    
+
     Returns
     -------
     str
         Path to the MAG file (only if file exists)
-        
+
     Raises
     ------
     FileNotFoundError
@@ -137,52 +176,40 @@ def ensure_mag_file(date_str):
     # Create directory if it doesn't exist
     mag_dir = 'data/SO/MAG'
     os.makedirs(mag_dir, exist_ok=True)
-    
-    # Expected filename
-    filename = f'solo_l2_mag-srf-normal_{date_str}_v01.cdf'
-    mag_file = os.path.join(mag_dir, filename)
-    
-    # Check if file exists
-    if os.path.exists(mag_file):
-        print(f"MAG file exists for {date_str}")
+
+    # Check both locations before hitting the network
+    mag_file = _find_mag_file(date_str)
+    if mag_file is not None:
+        print(f"MAG file exists for {date_str}: {mag_file}")
         return mag_file
-    
+
     # If not, download it
     print(f"Downloading MAG file for {date_str}...")
-    
+
     # Convert date format YYYYMMDD to YYYY-MM-DD
     date_formatted = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-    
+
     MAG = a.Instrument('MAG')
     time = a.Time(date_formatted, date_formatted)
     product = a.soar.Product("mag-srf-normal")
     level = a.Level(2)
-    
+
     try:
         query = Fido.search(MAG & time & product & level)
-        if len(query[0]) > 0:
-            Fido.fetch(query, path=mag_dir)
-            print(f"Successfully downloaded MAG file for {date_str}")
-            
-            # Verify file exists after download
-            if not os.path.exists(mag_file):
-                # Check if any .cdf file was downloaded (in case naming differs)
-                cdf_files = [f for f in os.listdir(mag_dir) if f.endswith('.cdf') and date_str in f]
-                if cdf_files:
-                    mag_file = os.path.join(mag_dir, cdf_files[0])
-                    print(f"Using downloaded file: {cdf_files[0]}")
-                else:
-                    raise FileNotFoundError(f"MAG file for {date_str} was not found after download")
-        else:
+        if len(query) == 0 or len(query[0]) == 0:
             raise FileNotFoundError(f"No MAG data found for {date_str} on SOAR")
-    except FileNotFoundError as e:
+        Fido.fetch(query, path=mag_dir)
+    except FileNotFoundError:
         raise
     except Exception as e:
         raise FileNotFoundError(f"Error downloading MAG file for {date_str}: {e}")
-    
-    if not os.path.exists(mag_file):
-        raise FileNotFoundError(f"MAG file for {date_str} not found at {mag_file}")
-    
+
+    # Re-scan rather than assuming Fido's on-disk name matches ours.
+    mag_file = _find_mag_file(date_str)
+    if mag_file is None:
+        raise FileNotFoundError(f"MAG file for {date_str} was not found after download")
+
+    print(f"Successfully downloaded MAG file for {date_str}: {mag_file}")
     return mag_file
 
 
@@ -232,6 +259,47 @@ def ensure_grnd_mom_file(date_str):
 
     print(f"Ground-moments file ready for {date_str}")
     return grnd_file
+
+
+def _find_noise_file(date_str):
+    """Return the path of the one-particle noise-level npz for *date_str*.
+
+    Delete_files.py rewrites this file's location *and* name, so both
+    variants have to be probed:
+
+      * ``result/SO/Noise_Level/one_particle_noise_level_{date}.npz``
+        — after cleanup ran (pipeline _DELETE=True)
+      * ``result/SO/{date}/one_particle_noise_level.npz``
+        — as written by gmm_auto_parallelised.py, still there when the
+          cleanup was skipped (pipeline _DELETE=False)
+
+    Parameters
+    ----------
+    date_str : str
+        Date string in format 'YYYYMMDD'
+
+    Returns
+    -------
+    str
+        Path to the noise-level file
+
+    Raises
+    ------
+    FileNotFoundError
+        If the noise-level file is in neither location
+    """
+    moved = f'result/SO/Noise_Level/one_particle_noise_level_{date_str}.npz'
+    in_place = f'result/SO/{date_str}/one_particle_noise_level.npz'
+
+    for path in (moved, in_place):
+        if os.path.exists(path):
+            print(f"Noise-level file for {date_str}: {path}")
+            return path
+
+    raise FileNotFoundError(
+        f"Noise-level file for {date_str} not found in either "
+        f"{os.path.dirname(moved)} or {os.path.dirname(in_place)}"
+    )
 
 
 def _nearest_index(times, target):
@@ -343,7 +411,6 @@ def Read_One_Day(Date):
     proton_vdf_file = f'result/SO/VDFs/Proton_vdf_{Date}.h5'
     alpha_vdf_file = f'result/SO/VDFs/Alpha_vdf_{Date}.h5'
     moment_file = f'result/SO/Moments/Moments_{Date}.csv'
-    one_particle_noise_file = f'result/SO/Noise_Level/one_particle_noise_level_{Date}.npz'
     # Skip if moments already computed
     if os.path.exists(moment_file):
         print(f"Moment file already exists for {Date}, skipping processing.")
@@ -354,14 +421,16 @@ def Read_One_Day(Date):
         print(f"VDF file(s) missing for {Date}, skipping processing.")
         return 0
     
-    # Ensure MAG file exists
+    # Locate the required input files, tolerating either pipeline mode
+    # (_DELETE=True → consolidated folders, _DELETE=False → per-day folders)
     try:
         mag_file = ensure_mag_file(Date)
         grnd_mom_file = ensure_grnd_mom_file(Date)
+        one_particle_noise_file = _find_noise_file(Date)
     except FileNotFoundError as e:
         print(f"Cannot process date {Date}: {e}")
         raise
-    
+
     # Noise level
     loaded_data = np.load(one_particle_noise_file)
     one_particle_noise_level = loaded_data['noise_level']
@@ -443,8 +512,8 @@ def main():
     """Main execution function."""
     run_start = time.perf_counter()
 
-    StartDate = '20210807'
-    EndDate = '20250405'
+    StartDate = '20231007'
+    EndDate = '20231007'
 
     date_range = _iter_dates(StartDate, EndDate)
     # Remove dates that do not have VDF files to avoid wasted work on data-gap days

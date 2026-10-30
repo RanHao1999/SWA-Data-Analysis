@@ -30,6 +30,19 @@ _PLOT = False
 # === END CONFIG ===
 
 
+def available_cores():
+    """Number of CPUs usable by this process.
+
+    Linux exposes CPU affinity through os.sched_getaffinity(), which also
+    honours taskset / cgroup limits.  macOS and Windows have no such call, so
+    fall back to os.cpu_count().
+    """
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:
+        return os.cpu_count() or 1
+
+
 def wait_for_data(yymmdd, timeout=3600, poll_interval=30):
     data_dir = f"data/SO/{yymmdd}"
     waited = 0
@@ -654,7 +667,7 @@ def main():
     calculate_noise_for_day(YYMMDD)
     preload_day_data(YYMMDD)
     # Clamp workers to actually-available cores (leave headroom for other users).
-    _avail = len(os.sched_getaffinity(0))
+    _avail = available_cores()
     _n_procs = min(N_PROCESSES, max(1, _avail - 2))
     if _n_procs != N_PROCESSES:
         print(f"  [ADAPT] Only {_avail} cores available → "

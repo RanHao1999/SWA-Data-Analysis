@@ -16,7 +16,8 @@
 #    under Miscellany/. The main pipeline uses stdlib concurrent.futures.
 #  * spacepy / sunpy / sunpy-soar / cdflib are only imported by
 #    Cal_Moments_From_VDF.py and sunpy_soar_download.py (SOAR data download);
-#    the core GMM fitting code does not need them.
+#    the core GMM fitting code does not need them.  spiceypy, by contrast, is
+#    imported by Funcs.py and is required by every pipeline run.
 name: GMM_env
 channels:
   - conda-forge
@@ -45,5 +46,6 @@ dependencies:
       - cdflib==1.3.8
       - tqdm==4.67.1
       - spacepy==0.7.0
+      - spiceypy==8.3.0
       - sunpy==6.0.6
       - sunpy-soar==1.11.1

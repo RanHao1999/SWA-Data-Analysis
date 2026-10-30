@@ -13,3 +13,16 @@ env/
 .mypy_cache/
 build/
 dist/
+
+# Run artifacts produced by the data pipeline - never commit these
+data/
+result/
+logs/
+*.log
+
+# Large data files
+*.h5
+*.hdf5
+*.pkl
+*.npz
+*.part
